@@ -5,6 +5,7 @@
 #include <array>
 
 #include "core/Parameters.h"
+#include "core/Pattern.h"
 #include "ui/Theme.h"
 #include "ui/Widgets.h"
 
@@ -41,6 +42,8 @@ private:
     ParamKnob swingKnob;
     ParamKnob humaniseKnob;
     ParamKnob stabilityKnob;
+    ParamKnob ghostKnob;
+    ParamKnob accentKnob;
     ParamKnob mutateAmountKnob;
     SegmentedControl personality;
     juce::ComboBox patternBox;
@@ -52,6 +55,7 @@ private:
     ParamButton evolveButton;
 
     int lastPatternIndex = -2;
+    int lastBeat = -1;
     bool lastPlaying = false;
     bool lastHostSynced = false;
     float lastBpm = -1.0f;
@@ -84,6 +88,14 @@ private:
     void applyStepEdit (const std::function<void (Step&, Lane&, PatternData&)>& edit);
     void refreshValues (bool force);
 
+    struct Snapshot
+    {
+        int voice = -1, step = -1, patternLength = -1, laneLength = -1, ratchet = -1;
+        bool on = false, locked = false, laneMuted = false, laneSoloed = false, laneLocked = false;
+        float velocity = -1.0f, probability = -1.0f, micro = 0.0f, pitch = 0.0f;
+        bool valid = false;
+    };
+
     KlopgeestProcessor& processor;
     int voice = 0;
     int step = 0;
@@ -109,6 +121,7 @@ private:
     juce::Rectangle<float> laneArea;
     juce::Rectangle<float> laneButtonArea;
     juce::Rectangle<float> loopKnobArea;
+    Snapshot snapshot;
 };
 
 // -----------------------------------------------------------------------------

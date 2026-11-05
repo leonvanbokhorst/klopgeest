@@ -285,6 +285,15 @@ int runAllTests()
 {
     std::printf ("KLOPGEEST tests\n");
 
+    // Per-section check counts are reported so docs/VALIDATION.md can record a
+    // breakdown without guessing. Workstream suites also print their own totals.
+    const auto beginSection = [] { return klop_test::gChecks; };
+    const auto endSection = [] (const char* name, int before)
+    {
+        std::printf ("  info  %s: %d checks\n", name, klop_test::gChecks - before);
+    };
+
+    int section = beginSection();
     KlopgeestProcessor processor;
     testParameters (processor);
     testPatterns();
@@ -293,29 +302,38 @@ int runAllTests()
     testDeterministicRender();
     testAudioThreadSafety();
     testMutation();
+    endSection ("legacy smoke", section);
 
     // --- QA cross-cutting suites -------------------------------------------
+    section = beginSection();
 #if defined(KLOPGEEST_HAS_QA_TESTS)
     runQaIntegrationTests();
 #else
     klop_test::skip ("QA integration suites (tests/QaIntegrationTests.* missing)");
 #endif
+    endSection ("QA integration", section);
 
     // --- Workstream suites --------------------------------------------------
 #if defined(KLOPGEEST_HAS_SEQUENCER_TESTS)
+    section = beginSection();
     runSequencerTests();
+    endSection ("sequencer/groove", section);
 #else
     klop_test::skip ("sequencer/groove test suite (tests/SequencerTests.* missing)");
 #endif
 
 #if defined(KLOPGEEST_HAS_VOICE_TESTS)
+    section = beginSection();
     runVoiceTests();
+    endSection ("voices", section);
 #else
     klop_test::skip ("voice test suite (tests/VoiceTests.* missing)");
 #endif
 
 #if defined(KLOPGEEST_HAS_MASTER_TESTS)
+    section = beginSection();
     runMasterTests();
+    endSection ("master/glue", section);
 #else
     klop_test::skip ("master/glue test suite (tests/MasterTests.* missing)");
 #endif

@@ -11,11 +11,12 @@ informed by lessons from NAGLOED but sharing no code with it.
 > *klopgeest* (Dutch) — a mischievous spirit that knocks and rattles around the
 > house. Not a ghost. Not a machine. Something in between that wants to be heard.
 
-Status: **Milestone 1 — a groove that works.** The instrument is playable, the
-sequencer syncs to the host, the groove engine humanises with deterministic
-seeds, and the master glue machine is in. See [docs/VALIDATION.md](docs/VALIDATION.md)
-for what was genuinely built and tested, and the open milestones for what comes
-next.
+Status: **Milestone 1 complete — a groove that works.** Eight procedurally
+synthesised voices, a host-synced sequencer with correlated humanisation and
+deterministic seeds, mutation with recall, and the glue machine are built and
+validated. Open milestones for the rest of the road are tracked as issues.
+
+![KLOPGEEST editor](docs/ui-preview.png)
 
 ## What it is
 
@@ -159,14 +160,40 @@ docs/            architecture, design tradeoffs, manual, validation, workshop
 
 ## Testing and validation
 
-See [docs/VALIDATION.md](docs/VALIDATION.md) for the exact commands, outputs and
-the honest list of what was and was not tested. See
-[docs/TESTING.md](docs/TESTING.md) for the test strategy.
+Measured on the Milestone 1 build (macOS 26.6.2, arm64, Apple Command Line Tools,
+CMake 4.0, JUCE 9.0.5). Details, commands and limitations:
+[docs/VALIDATION.md](docs/VALIDATION.md). Test strategy:
+[docs/TESTING.md](docs/TESTING.md).
+
+- **570 automated checks, 0 failures, 0 skipped** — voice DSP, groove/sequencer,
+  glue machine, state recall, hostile parameter fuzzing, sample-rate sweep,
+  block-size invariance and audio-thread allocation freedom.
+- **Apple `auval`: PASS** for `aumu Klpg MLLW`.
+- **pluginval strictness 10: PASS** on AU and VST3 (with editor open/close and
+  parameter fuzzing).
+- **Zero allocations** in `processBlock` after `prepareToPlay`.
+- **Demo**: 48 s, peak −1.2 dBFS, no full-scale samples, finite; deterministic
+  (same SHA-256 on repeated renders).
+- **CPU**: full 48 s demo renders in ~0.54 s (≈90× realtime, ~1 % of one core at
+  48 kHz stereo).
+- **Not performed**: automated GUI sessions in REAPER/Ableton Live (hosts are
+  installed; only `auval`/pluginval validation was run), notarisation, and
+  universal-binary builds. This build is native arm64 and ad-hoc signed.
 
 ```bash
 ./scripts/validate.sh          # build, tests, demo render, snapshot, auval, pluginval 10
 ./scripts/validate.sh --quick  # skip pluginval (the slow part)
 ```
+
+## Known limitations
+
+- macOS 12+ only; the local build is arm64 (no universal binary yet).
+- Ad-hoc signed, not notarised: hosts may require a rescan after install.
+- No user sample loading yet (procedural voices only).
+- No keyboard navigation or undo in the editor; 64-step patterns scroll
+  horizontally; velocity is edited in the step inspector.
+- DRIFT, BREATH, CONVERSATION, SCARS and FILL ME are deliberately deferred to
+  keep the core instrument stable; they are tracked as issues.
 
 ## Workshop
 

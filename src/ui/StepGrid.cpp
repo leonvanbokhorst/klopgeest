@@ -165,6 +165,15 @@ void StepGrid::refresh()
     }
 
     const auto length = processor.getPattern().length;
+    bool needsRepaint = false;
+
+    const auto changeCounter = visual.patternChangeCounter.load (std::memory_order_relaxed);
+
+    if (changeCounter != lastPatternChangeCounter)
+    {
+        lastPatternChangeCounter = changeCounter;
+        needsRepaint = true;
+    }
 
     if (length != lastPatternLength)
     {
@@ -172,12 +181,24 @@ void StepGrid::refresh()
         scrollOffset = 0.0f;
         recomputeMetrics();
         clampScroll();
+        needsRepaint = true;
     }
 
     if (selectedStep >= length)
+    {
         setSelection (selectedVoice, length - 1);
+        needsRepaint = true;
+    }
 
-    repaint();
+    if (visual.playing.load (std::memory_order_relaxed))
+        needsRepaint = true;
+
+    for (int v = 0; v < kNumVoices; ++v)
+        if (hitPulse[v] > 0.02f)
+            needsRepaint = true;
+
+    if (needsRepaint)
+        repaint();
 }
 
 void StepGrid::resized()
@@ -681,6 +702,7 @@ void StepGrid::paintCells (juce::Graphics& g)
     auto& pattern = processor.getPattern();
     auto& visual = processor.getVisualState();
     const auto steps = pattern.length;
+    const auto playing = visual.playing.load (std::memory_order_relaxed);
 
     g.saveState();
     g.reduceClipRegion (cellsArea.toNearestInt());
@@ -696,7 +718,7 @@ void StepGrid::paintCells (juce::Graphics& g)
             continue;
 
         const auto x = cellsArea.getX() - scrollOffset + cellW * (float) (group * 4);
-        g.setColour (juce::Colours::white.withAlpha (0.012f));
+        g.setColour (juce::Colours::white.withAlpha (0.022f));
         g.fillRect (juce::Rectangle<float> (x, cellsArea.getY(), cellW * 4.0f,
                                             cellsArea.getHeight()));
     }
@@ -710,7 +732,7 @@ void StepGrid::paintCells (juce::Graphics& g)
         {
             const auto& step = pattern.step (v, s);
             const auto rect = laneCellRect (v, s);
-            const auto current = laneStep >= 0 && laneStep == s;
+            const auto current = playing && laneStep >= 0 && laneStep == s;
             const auto selected = v == selectedVoice && s == selectedStep;
             const auto hovered = v == hoveredVoice && s == hoveredStep;
 
@@ -743,9 +765,9 @@ void StepGrid::paintCells (juce::Graphics& g)
 
         const auto x = cellsArea.getX() - scrollOffset + cellW * (float) s;
         const auto isBar = s % 16 == 0;
-        g.setColour (isBar ? col::amber.withAlpha (0.13f) : col::line.withAlpha (0.6f));
+        g.setColour (isBar ? col::amber.withAlpha (0.20f) : col::line.withAlpha (0.85f));
         g.fillRect (juce::Rectangle<float> (x - 0.5f, cellsArea.getY(),
-                                            isBar ? 1.5f : 1.0f, cellsArea.getHeight()));
+                                            isBar ? 2.0f : 1.0f, cellsArea.getHeight()));
     }
 
     g.restoreState();

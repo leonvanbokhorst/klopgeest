@@ -40,14 +40,18 @@ int renderDemo (const juce::File& outputFile)
     processor.prepareToPlay (sampleRate, blockSize);
     processor.setPlaying (true);
 
+    // A 48 s performance that builds: each section adds energy, and the last
+    // two sections get a NUDGE / MUTATE fill so the demo ends on a high rather
+    // than fading out. The ceiling is set below -1 dBFS so the render can be
+    // loud without ever clipping (validation requires peak <= -1 dBFS and zero
+    // full-scale samples).
     setParam (processor, pid::seed, 4242.0f);
     setParam (processor, pid::swing, 0.16f);
     setParam (processor, pid::humanize, 0.38f);
     setParam (processor, pid::stability, 0.66f);
-    setParam (processor, pid::glue, 0.42f);
-    setParam (processor, pid::heat, 0.28f);
     setParam (processor, pid::threshold, -16.0f);
-    setParam (processor, pid::mix, 0.85f);
+    setParam (processor, pid::mix, 0.90f);
+    setParam (processor, pid::ceiling, -1.2f);
     processor.loadFactoryPattern (0);
 
     outputFile.getParentDirectory().createDirectory();
@@ -72,6 +76,8 @@ int renderDemo (const juce::File& outputFile)
         return 1;
     }
 
+    enum class Action { none, nudge, mutate };
+
     struct Section
     {
         int pattern;
@@ -79,14 +85,18 @@ int renderDemo (const juce::File& outputFile)
         int personality;
         float glue;
         float heat;
+        float outputDb;
+        Action action;
     };
 
     const Section sections[] =
     {
-        { 0, 0.0,  1, 0.35f, 0.22f },
-        { 3, 12.0, 1, 0.52f, 0.34f },
-        { 1, 24.0, 2, 0.66f, 0.44f },
-        { 4, 36.0, 2, 0.58f, 0.36f }
+        // pattern, start, personality, glue, heat, output, action
+        { 0,  0.0, 1, 0.30f, 0.20f, 0.0f, Action::none },   // STRAIGHT FIRE: state the pulse
+        { 3, 12.0, 1, 0.42f, 0.28f, 1.5f, Action::none },   // WAREHOUSE: wider, louder
+        { 1, 24.0, 2, 0.52f, 0.38f, 2.5f, Action::mutate }, // BROKEN STEP: FERAL, mutate lift
+        { 4, 36.0, 2, 0.58f, 0.46f, 4.0f, Action::nudge },  // FERAL DUB: nudge fill
+        { 5, 42.0, 2, 0.60f, 0.48f, 3.5f, Action::mutate }  // SIXTEENTH ANXIETY: end strong
     };
 
     juce::AudioBuffer<float> buffer (2, blockSize);
@@ -109,6 +119,13 @@ int renderDemo (const juce::File& outputFile)
             setParam (processor, pid::personality, (float) section.personality);
             setParam (processor, pid::glue, section.glue);
             setParam (processor, pid::heat, section.heat);
+            setParam (processor, pid::output, section.outputDb);
+
+            if (section.action == Action::nudge)
+                processor.nudge();
+            else if (section.action == Action::mutate)
+                processor.mutate();
+
             ++nextSection;
         }
 

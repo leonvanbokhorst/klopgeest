@@ -13,13 +13,16 @@
 #   7. summary with PASS / FAIL / SKIP per step; exit non-zero on any FAIL
 #
 # Usage:
-#   ./scripts/validate.sh                     # full gate
+#   ./scripts/validate.sh                     # full gate (pluginval includes GUI tests)
 #   ./scripts/validate.sh --quick             # skip pluginval (still auval)
 #   ./scripts/validate.sh --skip-auval        # skip AU install/auval/AU pluginval
 #   ./scripts/validate.sh --skip-pluginval    # skip pluginval only
+#   ./scripts/validate.sh --skip-gui-tests    # pluginval without editor open/close
+#                                             # (headless CI only; the release gate
+#                                             # runs GUI tests by default)
 #   ./scripts/validate.sh --allow-silent-render
 #                                             # treat a silent demo as SKIP, not FAIL
-#                                             # (only sensible while DSP stubs remain)
+#                                             # (debugging only)
 #   ./scripts/validate.sh --no-build          # validate existing artefacts
 #
 # NOTE: this script must not run concurrently with another build. It uses
@@ -35,11 +38,28 @@ QUICK=0
 NO_BUILD=0
 SKIP_AUVAL=0
 SKIP_PLUGINVAL=0
+SKIP_GUI_TESTS=0
 ALLOW_SILENT_RENDER=0
 
 usage()
 {
-    sed -n '2,30p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+    cat <<'USAGE'
+KLOPGEEST final validation gate.
+
+Usage: ./scripts/validate.sh [options]
+
+  --quick                skip pluginval (auval still runs)
+  --no-build             validate the artefacts already in build/
+  --skip-auval           skip AU install + auval + AU pluginval
+  --skip-pluginval       skip pluginval only
+  --skip-gui-tests       pass --skip-gui-tests to pluginval (headless CI only;
+                         the release gate runs pluginval GUI tests by default)
+  --allow-silent-render  treat a silent demo render as SKIP, not FAIL (debugging)
+  -h, --help             show this help
+
+Writes logs to build/validate-logs/ and prints a PASS/FAIL/SKIP summary.
+Exit code is non-zero if any step FAILs.
+USAGE
 }
 
 for argument in "$@"; do
@@ -48,6 +68,7 @@ for argument in "$@"; do
         --no-build)             NO_BUILD=1 ;;
         --skip-auval)           SKIP_AUVAL=1 ;;
         --skip-pluginval)       SKIP_PLUGINVAL=1 ;;
+        --skip-gui-tests)       SKIP_GUI_TESTS=1 ;;
         --allow-silent-render)  ALLOW_SILENT_RENDER=1 ;;
         -h|--help)              usage; exit 0 ;;
         *)
@@ -66,6 +87,8 @@ AU_BUNDLE="$BUILD_DIR/KLOPGEEST_artefacts/Release/AU/KLOPGEEST.component"
 VST3_BUNDLE="$BUILD_DIR/KLOPGEEST_artefacts/Release/VST3/KLOPGEEST.vst3"
 STANDALONE_APP="$BUILD_DIR/KLOPGEEST_artefacts/Release/Standalone/KLOPGEEST.app"
 PLUGINVAL="$ROOT/.deps/pluginval/pluginval.app/Contents/MacOS/pluginval"
+# Fixed seed so a validation run is reproducible (see docs/VALIDATION.md).
+PLUGINVAL_SEED="0x3eafa08"
 DEMO_FILE="$ROOT/Demo/Klopgeest-Demo.wav"
 SNAPSHOT_FILE="$ROOT/docs/ui-preview.png"
 AU_INSTALL_DIR="$HOME/Library/Audio/Plug-Ins/Components"
@@ -277,8 +300,16 @@ if [ "$SKIP_PLUGINVAL" = 1 ]; then
 elif [ ! -x "$PLUGINVAL" ]; then
     record_skip "pluginval (not found at $PLUGINVAL)"
 else
+    # The release gate runs pluginval WITH GUI tests (editor open/close);
+    # --skip-gui-tests is an opt-in for headless CI only.
+    PLUGINVAL_ARGS=(--strictness-level 10 --random-seed "$PLUGINVAL_SEED")
+    if [ "$SKIP_GUI_TESTS" = 1 ]; then
+        PLUGINVAL_ARGS+=(--skip-gui-tests)
+        echo "  note: pluginval GUI tests are disabled (--skip-gui-tests)"
+    fi
+
     VST3_LOG="$LOG_DIR/pluginval-vst3.log"
-    if "$PLUGINVAL" --strictness-level 10 --skip-gui-tests --validate "$VST3_BUNDLE" \
+    if "$PLUGINVAL" "${PLUGINVAL_ARGS[@]}" --validate "$VST3_BUNDLE" \
            > "$VST3_LOG" 2>&1; then
         record_pass "pluginval strictness 10: VST3"
     else
@@ -287,14 +318,14 @@ else
 
     if [ "$AU_INSTALLED_OK" = 1 ]; then
         AU_LOG="$LOG_DIR/pluginval-au.log"
-        if "$PLUGINVAL" --strictness-level 10 --skip-gui-tests --validate "$AU_INSTALLED" \
+        if "$PLUGINVAL" "${PLUGINVAL_ARGS[@]}" --validate "$AU_INSTALLED" \
                > "$AU_LOG" 2>&1; then
             record_pass "pluginval strictness 10: AU"
         else
             fail_tail "pluginval strictness 10: AU" "$AU_LOG" 60
         fi
     else
-        record_skip "pluginval strictness 10: AU (AU was not installed for auval; depends on step 5)"
+        record_skip "pluginval strictness 10: AU (AU install/auval step was skipped; AU pluginval depends on it)"
     fi
 fi
 

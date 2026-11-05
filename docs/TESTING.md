@@ -27,9 +27,20 @@ N checks, M failures, K skipped
 ```
 
 `K` is not a failure. Skips are used for behaviour that cannot be asserted yet
-(for example "different seed produces different audio" while the sequencer is
+(for example "different seed produces different audio" while the sequencer was
 still a stub). A skip prints its reason, and `scripts/validate.sh` treats any
 failure as a failed gate.
+
+Current status (final tree, UI frozen):
+
+```
+570 checks, 0 failures, 0 skipped
+  legacy smoke: 58 | QA integration: 83 | sequencer/groove: 96
+  voices: 284 | master/glue: 49
+```
+
+The suite runs in a few seconds; the demo render (48 s of audio) takes ~0.55 s
+wall on this machine.
 
 ## The test map
 
@@ -110,11 +121,15 @@ Checked paths:
 The allocation counter is not compiled into the AU/VST3/Standalone targets, so
 it cannot affect validation results or shipped behaviour.
 
-**Known risk already measurable:** once the real sequencer emits more than one
-event per block, `std::stable_sort` in `Engine::process` may allocate a
-temporary buffer. That is an audio-thread allocation and the test above will
-report it. It should be replaced with an allocation-free in-place sort before
-the engine is considered releasable.
+**Bugs found by this test (and fixed):** the original `Engine::process` used
+`std::stable_sort` for sample-accurate ordering; the allocation counter caught
+that as a real audio-thread allocation, and it was replaced with an
+allocation-free insertion sort. The hostile state fuzz also caught a genuine
+session-data-loss bug: `PatternData::encodeRatchets` appended
+`jlimit(1,4,ratchet) + '0'` as an `int`, so `juce::String` wrote the decimal
+digits `"49".."52"` instead of one character, the fixed-length decode then
+silently skipped the whole ratchet field, and every ratchet was restored as 1.
+Fixed with an explicit `char` cast; ratchets now round-trip bit-exactly.
 
 ## What is asserted, and why
 
@@ -178,17 +193,21 @@ publish path as the editor.
 
 ## Skips in this phase
 
-At the time of writing the following are deliberately skipped, and will switch
-on when the owning workstream lands:
+The skip mechanism exists so a suite never claims coverage it does not have.
+When the sequencer was still a stub, block-size invariance, "different seed
+changes the audio" and "running transport produces audio" were skipped; they
+switched on automatically when the real `Sequencer`/`GrooveEngine` landed and
+now run (the full suite currently reports 0 skips).
 
-* block-size invariance and "different seed changes the audio" (need the real
-  `Sequencer`/`GrooveEngine`; currently every sequenced render is silent);
-* "running internal transport produces audio" (same reason).
+`klop_tool render` used to produce a silent WAV while the sequencer was a stub.
+That is no longer the case: the demo render is now audible and
+`scripts/validate.sh` fails a silent render unless `--allow-silent-render` is
+passed for debugging.
 
-`klop_tool render` therefore currently produces a silent WAV: that is expected
-while the sequencer stub is in place and must **not** be reported as a passing
-demo render. `scripts/validate.sh` fails a silent render unless explicitly
-allowed with `--allow-silent-render`.
+Skipped steps that legitimately remain at release time are listed in
+`docs/VALIDATION.md` §9 (currently only steps blocked by host permissions, e.g.
+AU install for `auval`/pluginval if the sandbox cannot write
+`~/Library/Audio/Plug-Ins/Components`).
 
 ## Debugging
 

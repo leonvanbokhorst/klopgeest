@@ -153,7 +153,7 @@ inline juce::String dbText (float db, int decimals = 1)
 
 inline juce::String signedMs (float ms)
 {
-    const auto rounded = juce::roundToInt (ms * 10.0f) / 10.0f;
+    const auto rounded = (float) juce::roundToInt (ms * 10.0f) / 10.0f;
     return (rounded >= 0.0f ? "+" : "") + juce::String (rounded, 1) + " ms";
 }
 

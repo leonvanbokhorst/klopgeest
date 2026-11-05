@@ -53,6 +53,22 @@ juce::String stepNumberText (int step)
 {
     return juce::String (step + 1).paddedLeft ('0', 2);
 }
+
+void drawCentredLabel (juce::Graphics& g, juce::Rectangle<float> area, const juce::String& text,
+                       float height, juce::Colour colour)
+{
+    auto font = ty::sans (height, true);
+
+    while (height > 5.0f && juce::GlyphArrangement::getStringWidth (font, text) > area.getWidth() - 2.0f)
+    {
+        height -= 0.4f;
+        font = ty::sans (height, true);
+    }
+
+    g.setFont (font);
+    g.setColour (colour);
+    g.drawText (text, area, juce::Justification::centred, false);
+}
 } // namespace
 
 // =============================================================================
@@ -63,6 +79,8 @@ TopBar::TopBar (KlopgeestProcessor& processorToUse)
       swingKnob (processorToUse.getAPVTS(), pid::swing, "SWING", col::amber),
       humaniseKnob (processorToUse.getAPVTS(), pid::humanize, "HUMANIZE", col::amber),
       stabilityKnob (processorToUse.getAPVTS(), pid::stability, "STABILITY", col::amber),
+      ghostKnob (processorToUse.getAPVTS(), pid::ghost, "GHOST", col::amber),
+      accentKnob (processorToUse.getAPVTS(), pid::accent, "ACCENT", col::amber),
       mutateAmountKnob (processorToUse.getAPVTS(), pid::mutateAmount, "MUTATE", col::cyan),
       personality (personalityNames(), col::amber),
       lengthControl ({ "16", "32", "64" }, col::amber),
@@ -145,6 +163,8 @@ TopBar::TopBar (KlopgeestProcessor& processorToUse)
     addAndMakeVisible (swingKnob);
     addAndMakeVisible (humaniseKnob);
     addAndMakeVisible (stabilityKnob);
+    addAndMakeVisible (ghostKnob);
+    addAndMakeVisible (accentKnob);
     addAndMakeVisible (mutateAmountKnob);
     addAndMakeVisible (personality);
     addAndMakeVisible (patternBox);
@@ -213,7 +233,21 @@ void TopBar::refresh()
         transport.setPulse (0.0f);
     }
 
+    auto& visual = processor.getVisualState();
+    const auto bpm = visual.bpm.load (std::memory_order_relaxed);
+    const auto host = visual.hostSynced.load (std::memory_order_relaxed);
+    const auto tick = visual.currentTick.load (std::memory_order_relaxed);
+    const auto beat = playing && tick >= 0 ? (int) ((tick / 4) % 4) : -1;
+
+    const bool needsPaint = std::abs (bpm - lastBpm) > 0.05f
+                            || host != lastHostSynced
+                            || playing != lastPlaying
+                            || beat != lastBeat;
+
     lastPlaying = playing;
+    lastBpm = bpm;
+    lastHostSynced = host;
+    lastBeat = beat;
 
     if (auto* parameter = processor.getAPVTS().getParameter (pid::personality))
     {
@@ -232,10 +266,8 @@ void TopBar::refresh()
 
     seedField.refresh();
 
-    const auto bpm = processor.getVisualState().bpm.load (std::memory_order_relaxed);
-    const auto host = processor.getVisualState().hostSynced.load (std::memory_order_relaxed);
-    lastBpm = bpm;
-    lastHostSynced = host;
+    if (needsPaint)
+        repaint();
 }
 
 void TopBar::resized()
@@ -253,18 +285,18 @@ void TopBar::resized()
     wordmarkArea = r1.removeFromLeft (212.0f);
     r1.removeFromLeft (8.0f);
 
-    transport.setBounds (r1.removeFromLeft (88.0f)
-                             .withSizeKeepingCentre (88.0f, juce::jmin (44.0f, row1.getHeight()))
+    transport.setBounds (r1.removeFromLeft (96.0f)
+                             .withSizeKeepingCentre (96.0f, juce::jmin (44.0f, row1.getHeight()))
                              .toNearestInt());
-    r1.removeFromLeft (10.0f);
-    clockArea = r1.removeFromLeft (104.0f);
+    r1.removeFromLeft (12.0f);
+    clockArea = r1.removeFromLeft (118.0f);
 
     // Right aligned configuration groups.
-    auto lengthGroup = r1.removeFromRight (104.0f);
-    r1.removeFromRight (10.0f);
-    auto patternGroup = r1.removeFromRight (188.0f);
-    r1.removeFromRight (10.0f);
-    auto personalityGroup = r1.removeFromRight (150.0f);
+    auto lengthGroup = r1.removeFromRight (112.0f);
+    r1.removeFromRight (12.0f);
+    auto patternGroup = r1.removeFromRight (214.0f);
+    r1.removeFromRight (12.0f);
+    auto personalityGroup = r1.removeFromRight (168.0f);
 
     auto placeControl = [] (juce::Rectangle<float> group, int controlHeight)
     {
@@ -285,12 +317,16 @@ void TopBar::resized()
     // ---- row two ------------------------------------------------------------
     auto r2 = row2;
 
-    const auto knobW = juce::jmin (96.0f, r2.getWidth() * 0.09f);
+    const auto knobW = juce::jmin (94.0f, r2.getWidth() * 0.085f);
     swingKnob.setBounds (r2.removeFromLeft (knobW).toNearestInt());
     r2.removeFromLeft (2.0f);
     humaniseKnob.setBounds (r2.removeFromLeft (knobW).toNearestInt());
     r2.removeFromLeft (2.0f);
     stabilityKnob.setBounds (r2.removeFromLeft (knobW).toNearestInt());
+    r2.removeFromLeft (2.0f);
+    ghostKnob.setBounds (r2.removeFromLeft (knobW).toNearestInt());
+    r2.removeFromLeft (2.0f);
+    accentKnob.setBounds (r2.removeFromLeft (knobW).toNearestInt());
 
     auto evolveGroup = r2.removeFromRight (84.0f);
     r2.removeFromRight (8.0f);
@@ -316,7 +352,8 @@ void TopBar::resized()
 
     mutateAmountKnob.setBounds (mutateAmountGroup.toNearestInt());
 
-    auto seedGroup = r2.removeFromRight (154.0f);
+    r2.removeFromLeft (14.0f);
+    auto seedGroup = r2.removeFromLeft (154.0f);
     seedField.setBounds (seedGroup.withTrimmedTop (11.0f)
                              .withHeight (juce::jmin (28.0f, seedGroup.getHeight() - 11.0f))
                              .toNearestInt());
@@ -439,7 +476,7 @@ StepInspector::StepInspector (KlopgeestProcessor& processorToUse)
                  [] (double value) { return semisText (value); }, col::amber),
       ratchetKnob ("RATCHET", juce::NormalisableRange<double> (1.0, 4.0, 1.0),
                    [] (double value) { return ratchetText (value); }, col::amber),
-      laneLoopKnob ("LOOP", juce::NormalisableRange<double> (1.0, 64.0, 1.0),
+      laneLoopKnob ("LANE LEN", juce::NormalisableRange<double> (1.0, 64.0, 1.0),
                     [] (double value) { return loopText (value); }, col::cyan)
 {
     addAndMakeVisible (velocityKnob);
@@ -537,8 +574,8 @@ void StepInspector::setSelection (int newVoice, int newStep)
 
     voice = v;
     step = s;
+    snapshot.valid = false;
     refreshValues (true);
-    resized();
     repaint();
 }
 
@@ -548,14 +585,53 @@ void StepInspector::refresh()
     const auto length = juce::jmax (1, pattern.length);
 
     if (step >= length)
+    {
         step = length - 1;
+        snapshot.valid = false;
+    }
 
+    const auto& stepData = pattern.step (voice, step);
+    const auto& lane = pattern.lanes[(size_t) voice];
+
+    Snapshot current;
+    current.voice = voice;
+    current.step = step;
+    current.patternLength = pattern.length;
+    current.laneLength = lane.length;
+    current.ratchet = stepData.ratchet;
+    current.on = stepData.on;
+    current.locked = stepData.locked;
+    current.laneMuted = lane.muted;
+    current.laneSoloed = lane.soloed;
+    current.laneLocked = lane.locked;
+    current.velocity = stepData.velocity;
+    current.probability = stepData.probability;
+    current.micro = stepData.microtiming;
+    current.pitch = stepData.pitchSemis;
+    current.valid = true;
+
+    const auto& last = snapshot;
+    const bool changed = ! last.valid
+                         || last.voice != current.voice
+                         || last.step != current.step
+                         || last.patternLength != current.patternLength
+                         || last.laneLength != current.laneLength
+                         || last.ratchet != current.ratchet
+                         || last.on != current.on
+                         || last.locked != current.locked
+                         || last.laneMuted != current.laneMuted
+                         || last.laneSoloed != current.laneSoloed
+                         || last.laneLocked != current.laneLocked
+                         || std::abs (last.velocity - current.velocity) > 1.0e-5f
+                         || std::abs (last.probability - current.probability) > 1.0e-5f
+                         || std::abs (last.micro - current.micro) > 1.0e-6f
+                         || std::abs (last.pitch - current.pitch) > 1.0e-5f;
+
+    if (! changed)
+        return;
+
+    snapshot = current;
     refreshValues (false);
-    onButton.repaint();
-    stepLockButton.repaint();
-    muteButton.repaint();
-    soloButton.repaint();
-    laneLockButton.repaint();
     repaint();
 }
 
@@ -689,7 +765,7 @@ void StepInspector::paint (juce::Graphics& g)
 
     drawSectionLabel (g, headerArea, "STEP INSPECTOR", col::textDim, 8.0f);
 
-    auto header = headerArea.withTrimmedLeft (88.0f);
+    auto header = headerArea.withTrimmedLeft (108.0f);
 
     drawSpacedText (g, juce::String (voiceShortName (voice)) + "  " + stepNumberText (step),
                     header, ty::sans (11.5f, true), col::amberHi,
@@ -720,14 +796,15 @@ void StepInspector::paint (juce::Graphics& g)
     g.fillRect (juce::Rectangle<float> (bounds.getX() + 8.0f, laneArea.getY() - 3.0f,
                                         bounds.getWidth() - 16.0f, 1.0f));
 
-    // Lane section headings.
+    // Lane section headings. "LANE LEN" is deliberately distinct from the
+    // pattern LENGTH selector in the top bar.
     auto laneTitle = laneArea.withHeight (13.0f);
-    drawSectionLabel (g, laneTitle, "LANE", col::textDim, 7.5f);
+    drawSectionLabel (g, laneTitle, "LANE LEN", col::textDim, 7.5f);
 
     g.setFont (ty::mono (7.0f));
     g.setColour (col::textFaint);
-    g.drawText ("LOOP " + juce::String (lane.length) + " OF " + juce::String (pattern.length),
-                laneTitle.withTrimmedLeft (40.0f), juce::Justification::centredLeft, false);
+    g.drawText (juce::String (lane.length) + " / " + juce::String (pattern.length) + " STEPS",
+                laneTitle.withTrimmedLeft (64.0f), juce::Justification::centredLeft, false);
 }
 
 // =============================================================================
@@ -802,7 +879,10 @@ void VoicePanel::refresh()
     const auto db = level > 1.0e-4f ? 20.0f * std::log10 (level) : -100.0f;
     meter.setLevelsDb (db, db, db, db);
 
-    repaint();
+    // Only the identity block animates between hits; the 15 knobs and the
+    // level meter take care of their own repaints.
+    if ((count != lastTriggerCount || hitFlash > 0.02f) && ! leftArea.isEmpty())
+        repaint (leftArea.toNearestInt());
 }
 
 void VoicePanel::resized()
@@ -904,11 +984,12 @@ void VoicePanel::paint (juce::Graphics& g)
 
         g.setColour (lit ? col::amber.withAlpha (0.85f) : col::panelLow);
         g.fillRoundedRectangle (pill, 3.0f);
-        g.setColour (lit ? col::amberHi : col::line);
+        g.setColour (lit ? col::amberHi : col::lineHi.withAlpha (0.8f));
         g.drawRoundedRectangle (pill.reduced (0.5f), 3.0f, 1.0f);
 
-        drawSmallLabel (g, pill, flagNames[i].label, juce::jlimit (6.0f, 7.5f, pill.getHeight() * 0.5f),
-                        lit ? col::bgDeep : col::textFaint, 0.3f);
+        drawCentredLabel (g, pill, flagNames[i].label,
+                          juce::jlimit (6.0f, 7.5f, pill.getHeight() * 0.5f),
+                          lit ? col::bgDeep : col::textDim);
     }
 
     // Divider between identity and knobs.
@@ -926,7 +1007,7 @@ void VoicePanel::paintReadout (juce::Graphics& g, juce::Rectangle<float> area)
                       6.8f);
 
     const auto hasHit = lastTriggerCount > 0;
-    const auto rowH = juce::jmin (13.0f, area.getHeight() / 4.5f);
+    const auto rowH = juce::jmin (17.0f, area.getHeight() / 4.0f);
 
     struct Row { const char* label; juce::String value; };
     const Row rows[] =
@@ -940,12 +1021,12 @@ void VoicePanel::paintReadout (juce::Graphics& g, juce::Rectangle<float> area)
     for (const auto& row : rows)
     {
         auto line = area.removeFromTop (rowH);
-        g.setFont (ty::sans (7.0f, true));
-        g.setColour (col::textFaint);
-        g.drawText (row.label, line.removeFromLeft (38.0f), juce::Justification::centredLeft,
+        g.setFont (ty::sans (7.2f, true));
+        g.setColour (col::textDim);
+        g.drawText (row.label, line.removeFromLeft (40.0f), juce::Justification::centredLeft,
                     false);
-        g.setFont (ty::mono (8.8f, true));
-        g.setColour (hasHit ? col::cyan : col::textFaint);
+        g.setFont (ty::mono (9.2f, true));
+        g.setColour (hasHit ? col::cyan : col::textDim);
         g.drawText (row.value, line, juce::Justification::centredRight, false);
     }
 }
@@ -1018,9 +1099,11 @@ void GroovePanel::resized()
     auto la = leftArea;
     la.removeFromTop (13.0f); // drift scope title
 
-    scopeArea = la.removeFromTop (juce::jmin (100.0f, la.getHeight() * 0.60f));
-    la.removeFromTop (6.0f);
-    explainArea = la;
+    const auto explainH = juce::jmin (48.0f, la.getHeight() * 0.30f);
+    explainArea = la.removeFromBottom (explainH);
+    la.removeFromBottom (6.0f);
+    scopeArea = la;
+    scope.setBounds (scopeArea.toNearestInt());
 
     const auto row1H = juce::jmin (94.0f, bounds.getHeight() * 0.53f);
     row1Area = bounds.removeFromTop (row1H);
@@ -1091,9 +1174,8 @@ void GroovePanel::paintExplainer (juce::Graphics& g, juce::Rectangle<float> area
 
     line ("ANCHORS", "kick & snare hold the grid", col::amber);
     line ("COLOUR", "hats & perc drift and flam", col::cyan);
-    line ("STABILITY", "holds the centre line", col::amber);
-    line ("HUMANISE", "opens the field around it", col::cyan);
-    line ("PERSONALITY", "picks how far the machine dares", col::amber);
+    line ("STABILITY", "holds centre / HUMANISE opens width", col::amber);
+    line ("PERSONALITY", "picks how far the machine dares", col::cyan);
 }
 
 void GroovePanel::paint (juce::Graphics& g)
@@ -1136,15 +1218,11 @@ void GroovePanel::paint (juce::Graphics& g)
                                         row2Area.getWidth(), 12.0f),
                 juce::Justification::centredRight, false);
 
-    // Vertical separators between time and tone controls in row one.
-    for (int i = 1; i < 6; ++i)
-    {
-        if (i == 3)
-            continue;
-
-        const auto x = row1Area.getX() + row1Area.getWidth() * (float) i / 6.0f;
-        juce::ignoreUnused (x);
-    }
+    // Vertical separator between time controls and tone controls.
+    const auto splitX = row1Area.getX() + row1Area.getWidth() * 0.5f;
+    g.setColour (col::line.withAlpha (0.7f));
+    g.fillRect (juce::Rectangle<float> (splitX, row1Area.getY() + 14.0f, 1.0f,
+                                        row1Area.getHeight() - 22.0f));
 }
 
 // =============================================================================
@@ -1292,9 +1370,10 @@ void GluePanel::paint (juce::Graphics& g)
                                                 meterArea.getWidth(), 12.0f);
     drawSectionLabel (g, meterHeading, "GR", col::textFaint, 7.0f);
 
-    g.setFont (ty::mono (8.0f, true));
+    g.setFont (ty::mono (7.5f, true));
     g.setColour (grMeter.getDisplayDb() > 0.25f ? col::amberHi : col::textFaint);
-    g.drawText ("-" + juce::String (grMeter.getDisplayDb(), 1) + " dB", meterHeading,
+    g.drawText ("-" + juce::String (grMeter.getDisplayDb(), 1),
+                meterHeading.withWidth (grArea.getWidth()),
                 juce::Justification::centredRight, false);
 
     drawSectionLabel (g, { outputMeterArea.getX(), outputMeterArea.getY() - 14.0f,

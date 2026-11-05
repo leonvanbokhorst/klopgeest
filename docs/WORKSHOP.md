@@ -57,10 +57,12 @@ Two rules you will see everywhere and must preserve:
   thread (sequencer → voices → glue machine → metering).
 * The build loop: edit → `./scripts/dev-build.sh klop_tool` →
   `klop_tool test` → `klop_tool render Demo/Klopgeest-Demo.wav`.
-* Where the current stubs are: `src/dsp/voices/VoiceFactory.cpp` (placeholder
-  oscillator voice), `src/sequencer/Sequencer.cpp`,
-  `src/sequencer/GrooveEngine.cpp`, `src/dsp/master/GlueMachine.cpp`,
-  `src/ui/Editor.cpp`. Replace, don't redesign: the contracts are fixed.
+* The Phase A placeholder implementations have all been replaced by the real
+  workstreams: `src/dsp/voices/VoiceFactory.cpp` (eight procedural voices),
+  `src/sequencer/Sequencer.cpp` + `GrooveEngine.cpp`, `src/dsp/master/
+  GlueMachine.cpp` and `src/ui/` (real editor). Read them as worked examples of
+  the contracts. Replace/improve behaviour, don't redesign the contracts: the
+  headers are frozen.
 * Exercise: find the injection point for a new voice, a new groove behaviour and
   a new rhythmic interaction, and say which file owns each.
 

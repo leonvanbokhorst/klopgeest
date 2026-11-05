@@ -232,7 +232,12 @@ void TransportButton::setPlaying (bool shouldBePlaying)
 
 void TransportButton::setPulse (float newPulse)
 {
-    pulse = juce::jlimit (0.0f, 1.0f, newPulse);
+    const auto clamped = juce::jlimit (0.0f, 1.0f, newPulse);
+
+    if (std::abs (clamped - pulse) < 0.01f)
+        return;
+
+    pulse = clamped;
     repaint();
 }
 
@@ -921,6 +926,9 @@ void LevelMeter::paint (juce::Graphics& g)
             g.restoreState();
         }
 
+        g.setColour (col::line);
+        g.drawRoundedRectangle (bar.reduced (0.5f), 2.0f, 1.0f);
+
         const auto peakNorm = dbToNorm (dispPeak[ch]);
 
         if (peakNorm > 0.01f)
@@ -953,13 +961,15 @@ void LevelMeter::paint (juce::Graphics& g)
 void GainReductionMeter::setGainReductionDb (float reductionDb)
 {
     const auto target = juce::jlimit (0.0f, 24.0f, reductionDb);
+    const auto previous = display;
 
     if (target > display)
         display = target;
     else
         display = juce::jmax (0.0f, display - 0.9f);
 
-    repaint();
+    if (std::abs (display - previous) > 0.02f)
+        repaint();
 }
 
 void GainReductionMeter::paint (juce::Graphics& g)
@@ -1027,6 +1037,7 @@ DriftScope::DriftScope (KlopgeestProcessor& processorToUse)
 void DriftScope::refresh()
 {
     auto& visual = processor.getVisualState();
+    bool changed = false;
 
     for (int v = 0; v < kNumVoices; ++v)
     {
@@ -1036,25 +1047,42 @@ void DriftScope::refresh()
         {
             triggerCount[v] = count;
             flash[v] = 1.0f;
+            changed = true;
         }
         else
         {
-            flash[v] *= 0.86f;
+            if (flash[v] > 0.005f)
+            {
+                flash[v] *= 0.86f;
+                changed = true;
+            }
         }
 
-        timing[v] = visual.lastTimingMs[v].load (std::memory_order_relaxed);
-        velocity[v] = visual.lastVelocity[v].load (std::memory_order_relaxed);
-        pitch[v] = visual.lastPitchSemis[v].load (std::memory_order_relaxed);
+        const auto newTiming = visual.lastTimingMs[v].load (std::memory_order_relaxed);
+        const auto newVelocity = visual.lastVelocity[v].load (std::memory_order_relaxed);
+        const auto newPitch = visual.lastPitchSemis[v].load (std::memory_order_relaxed);
+
+        if (std::abs (newTiming - timing[v]) > 0.001f
+            || std::abs (newVelocity - velocity[v]) > 0.001f
+            || std::abs (newPitch - pitch[v]) > 0.001f)
+        {
+            changed = true;
+        }
+
+        timing[v] = newTiming;
+        velocity[v] = newVelocity;
+        pitch[v] = newPitch;
     }
 
-    repaint();
+    if (changed)
+        repaint();
 }
 
 void DriftScope::paint (juce::Graphics& g)
 {
     auto bounds = getLocalBounds().toFloat();
 
-    if (bounds.getWidth() < 60.0f || bounds.getHeight() < 40.0f)
+    if (bounds.getWidth() < 80.0f || bounds.getHeight() < 50.0f)
         return;
 
     g.setColour (col::panelLow);
@@ -1062,72 +1090,102 @@ void DriftScope::paint (juce::Graphics& g)
     g.setColour (col::line);
     g.drawRoundedRectangle (bounds.reduced (0.5f), 5.0f, 1.0f);
 
-    auto plot = bounds.reduced (8.0f, 10.0f);
-    auto labels = plot.removeFromLeft (34.0f);
+    auto inner = bounds.reduced (7.0f, 6.0f);
+    auto labels = inner.removeFromLeft (36.0f);
+    auto timeRow = inner.removeFromBottom (9.0f);
+    auto plot = inner;
+
+    if (plot.getHeight() < 20.0f)
+        return;
 
     const auto centreX = plot.getCentreX();
     const auto halfW = plot.getWidth() * 0.5f;
     const auto rowH = plot.getHeight() / (float) kNumVoices;
 
     // Time grid.
-    for (float ms : { -40.0f, -20.0f, 0.0f, 20.0f, 40.0f })
+    const float marks[] = { -40.0f, -20.0f, 0.0f, 20.0f, 40.0f };
+
+    for (int i = 0; i < 5; ++i)
     {
+        const auto ms = marks[i];
         const auto x = centreX + (ms / 40.0f) * halfW;
-        g.setColour (ms == 0.0f ? col::lineHi : col::line.withAlpha (0.6f));
-        g.fillRect (juce::Rectangle<float> (x - 0.5f, plot.getY(), 1.0f, plot.getHeight()));
-    }
 
-    g.setFont (ty::mono (6.5f));
-
-    for (int v = 0; v < kNumVoices; ++v)
-    {
-        const auto rowY = plot.getY() + rowH * (float) v + rowH * 0.5f;
-        const auto accent = voiceIsAnchor (v) ? col::amber : col::cyan;
-
-        g.setColour (col::textFaint);
-        g.setFont (ty::mono (6.5f, true));
-        g.drawText (voiceShortName (v), juce::Rectangle<float> (
-                        labels.getX(), rowY - 5.0f, labels.getWidth() - 4.0f, 10.0f),
-                    juce::Justification::centredRight, false);
-
-        const auto ms = juce::jlimit (-40.0f, 40.0f, timing[v]);
-        const auto x = centreX + (ms / 40.0f) * halfW;
-        const auto y = rowY + juce::jlimit (-3.0f, 3.0f, pitch[v] * 0.8f);
-
-        g.setColour (accent.withAlpha (0.10f + 0.18f * flash[v]));
-        g.fillRect (juce::Rectangle<float> (juce::jmin (x, centreX), rowY - 0.5f,
-                                            std::abs (x - centreX), 1.0f));
-
-        const auto radius = 2.0f + 2.4f * juce::jlimit (0.0f, 1.0f, velocity[v]);
-        g.setColour (accent.withAlpha (0.28f + 0.72f * flash[v]));
-        g.fillEllipse (juce::Rectangle<float> (radius * 2.0f, radius * 2.0f)
-                           .withCentre ({ x, y }));
-
-        if (flash[v] > 0.15f)
+        if (i == 2)
         {
-            g.setColour (accent.withAlpha (0.20f * flash[v]));
-            g.drawEllipse (juce::Rectangle<float> (radius * 3.2f, radius * 3.2f)
-                               .withCentre ({ x, y }), 1.0f);
+            g.setColour (col::cyan.withAlpha (0.22f));
+            g.fillRect (juce::Rectangle<float> (x - 0.6f, plot.getY(), 1.2f, plot.getHeight()));
+        }
+        else
+        {
+            g.setColour (col::line.withAlpha (i == 0 || i == 4 ? 0.5f : 0.32f));
+            g.fillRect (juce::Rectangle<float> (x - 0.5f, plot.getY(), 1.0f, plot.getHeight()));
         }
     }
 
-    // Time labels.
-    g.setFont (ty::mono (6.5f));
+    // Lane separators and voice names.
+    for (int v = 0; v < kNumVoices; ++v)
+    {
+        const auto rowY = plot.getY() + rowH * (float) v;
+        const auto centreY = rowY + rowH * 0.5f;
+        const auto accent = voiceIsAnchor (v) ? col::amber : col::cyan;
+        const auto lit = 0.30f + 0.70f * flash[v];
+
+        if (v % 2 == 1)
+        {
+            g.setColour (juce::Colours::white.withAlpha (0.014f));
+            g.fillRect (juce::Rectangle<float> (labels.getX(), rowY, labels.getWidth() + plot.getWidth(),
+                                                rowH));
+        }
+
+        g.setColour (col::line.withAlpha (0.30f));
+        g.fillRect (juce::Rectangle<float> (labels.getX(), rowY + rowH - 0.5f,
+                                            labels.getWidth() + plot.getWidth(), 0.8f));
+
+        drawSpacedText (g, voiceShortName (v),
+                        juce::Rectangle<float> (labels.getX(), rowY, labels.getWidth() - 4.0f, rowH),
+                        ty::mono (6.2f, true), accent.withAlpha (lit),
+                        juce::Justification::centredRight, 0.0f);
+
+        const auto ms = juce::jlimit (-40.0f, 40.0f, timing[v]);
+        const auto x = centreX + (ms / 40.0f) * halfW;
+        const auto y = centreY + juce::jlimit (-3.0f, 3.0f, pitch[v] * 0.8f);
+        const auto radius = 1.8f + 2.4f * juce::jlimit (0.0f, 1.0f, velocity[v]);
+
+        // Trail from the grid line to where the hit actually landed.
+        g.setColour (accent.withAlpha (0.10f + 0.24f * flash[v]));
+        g.fillRect (juce::Rectangle<float> (juce::jmin (x, centreX), centreY - 0.5f,
+                                            std::abs (x - centreX), 1.0f));
+
+        if (flash[v] > 0.08f)
+        {
+            g.setColour (accent.withAlpha (0.16f * flash[v]));
+            g.fillEllipse (juce::Rectangle<float> (radius * 4.0f, radius * 4.0f)
+                               .withCentre ({ x, y }));
+        }
+
+        g.setColour (accent.withAlpha (0.35f + 0.65f * flash[v]));
+        g.fillEllipse (juce::Rectangle<float> (radius * 2.0f, radius * 2.0f).withCentre ({ x, y }));
+    }
+
+    // Time labels underneath.
+    g.setFont (ty::mono (6.2f));
     g.setColour (col::textFaint);
 
-    const std::pair<float, const char*> timeLabels[] =
+    for (auto ms : marks)
     {
-        { -40.0f, "-40" }, { 0.0f, "0" }, { 40.0f, "+40" }
-    };
-
-    for (const auto& pair : timeLabels)
-    {
-        const auto x = centreX + (pair.first / 40.0f) * halfW;
-        g.drawText (pair.second, juce::Rectangle<float> (x - 12.0f,
-                                                         plot.getBottom() + 0.5f,
-                                                         24.0f, 9.0f),
+        const auto x = centreX + (ms / 40.0f) * halfW;
+        const auto text = ms == 0.0f ? juce::String ("0") : juce::String ((int) ms);
+        g.drawText (text, juce::Rectangle<float> (x - 12.0f, timeRow.getY(), 24.0f,
+                                                  timeRow.getHeight()),
                     juce::Justification::centred, false);
     }
+
+    // Axis unit hint, kept clear of the tick labels.
+    g.setFont (ty::mono (6.0f));
+    g.setColour (col::textFaint.withAlpha (0.75f));
+    g.drawText ("ms", juce::Rectangle<float> (labels.getX(), timeRow.getY(),
+                                              labels.getWidth() - 2.0f, timeRow.getHeight()),
+                juce::Justification::centredRight, false);
 }
 
 } // namespace klopgeest::ui

@@ -1,16 +1,21 @@
-# KLOPGEEST — User Manual (draft)
+# KLOPGEEST — User Manual
 
-> DRAFT: written during Phase A. Parameter descriptions and musical claims are
-> checked against `src/core/Parameters.h` / `src/core/EngineParams.h`; screenshots
-> and the final factory-pattern descriptions are completed in Phase B when the
-> real editor and DSP land. Owner: QA workstream. Do not edit from other
-> workstreams — send corrections.
+> Manual for KLOPGEEST 0.1.0 (Milestone 1, macOS arm64). Controls and ranges are
+> checked against `src/core/Parameters.h` / `src/core/EngineParams.h` and the
+> voice/sequencer contracts; the editor screenshot is `docs/ui-preview.png` from
+> the final editor. Release evidence and known limitations live in
+> [VALIDATION.md](VALIDATION.md). Owner: QA workstream — send corrections rather
+> than editing from other workstreams.
 
 KLOPGEEST is a procedural drum machine: eight synthesized drum voices driven by a
 deterministic groove engine and glued together by a bus compressor / saturation /
 limiter chain. There are no samples. It is designed to feel like a drummer, not a
 grid: timing, pitch, velocity, decay and texture deviation are part of the
 instrument, controllable and repeatable.
+
+The editor at its default 1180×680 size:
+
+![KLOPGEEST editor](ui-preview.png)
 
 ## 1. Signal flow
 
@@ -68,7 +73,24 @@ classic hat choke, only tighter). `PITCH VAR` etc. define *how much* the groove
 engine is allowed to bend a hit; the tuned ranges are musical ranges, not raw
 randomness.
 
-## 3. Pattern and steps
+## 3. Factory patterns
+
+Six factory rhythms double as starting points (selectable in the PATTERN menu
+and exposed as programs to the host):
+
+| # | Name | Character |
+| --- | --- | --- |
+| 0 | STRAIGHT FIRE | four-to-the-floor kick, offbeat open hats, a breath of percussion |
+| 1 | BROKEN STEP | syncopated kick, displaced clap, hats that lean forward |
+| 2 | GHOST POCKET | sparse anchor skeleton with ghost notes around it |
+| 3 | WAREHOUSE | driving, larger room, harder accents |
+| 4 | FERAL DUB | loose, dubby, heavy space |
+| 5 | SIXTEENTH ANXIETY | busy sixteenth colour, nervous top end |
+
+The exact step data lives in `src/core/Patterns.cpp`; the names are shown in the
+editor and are stable IDs for host programs.
+
+## 4. Pattern and steps
 
 A pattern is a grid of up to 64 sixteenth-note steps (default 16; pattern length
 16/32/64), eight lanes (one per voice). Each step has:
@@ -86,7 +108,7 @@ Per lane: length, mute, solo, lock (ignore humanisation for that voice).
 Factory rhythms double as programs (6 patterns). The pattern is saved with the
 host session and restored exactly.
 
-## 4. Performance controls
+## 5. Performance controls
 
 | Control | Range (default) | What it does |
 | --- | --- | --- |
@@ -106,7 +128,7 @@ transport (Standalone, or host stopped). With a host transport the sequencer
 follows host BPM and song position, including seeks and loops. **PANIC**
 immediately silences the voices.
 
-## 5. Pattern actions
+## 6. Pattern actions
 
 * **NUDGE** — one small, recallable change to the pattern.
 * **MUTATE** — a bigger stochastic pattern variation.
@@ -116,7 +138,7 @@ immediately silences the voices.
 
 All editing happens on the message thread; the audio thread never waits.
 
-## 6. Glue machine (master bus)
+## 7. Glue machine (master bus)
 
 Not a transparent compressor. Controls (parameter IDs `master.*`):
 
@@ -138,14 +160,56 @@ Not a transparent compressor. Controls (parameter IDs `master.*`):
 | GLUE | 0 … 1 (0.35) | performance macro: compression + parallel blend |
 | HEAT | 0 … 1 (0.25) | performance macro: saturation + drive |
 
-## 7. State, presets and sessions
+## 8. Live MIDI input
 
 The plug-in saves the complete parameter state plus the current pattern (and its
 pattern index) with the host session. Factory patterns are programs; user
 presets are host sessions. The save format is versioned; never rename parameter
 IDs (they are host automation identities).
 
-## 8. Tips
+## 9. Groove concepts (why it feels like a drummer)
+
+* **Humans are correlated, not random.** The groove engine's timing movement is
+  value noise over the tick index (`src/core/Random.h`), so hats drift *together*
+  over a bar instead of each hit jittering on its own. Raising HUMANIZE widens
+  every stochastic dimension; STABILITY pulls them back toward machine-tight.
+* **Rhythm roles matter.** The kick and snare are anchors; they are kept much
+  tighter than hats/perc/odd (`kVoiceRoleLoose` in `src/core/Constants.h`).
+  PERC/ODD carry the loose, human colour.
+* **PERSONALITY is a policy, not a preset.** TIGHT clamps deviations hard. LOOSE
+  lets the grid breathe. FERAL pushes timing/pitch/decay far but still clamps
+  each hit, so the pulse stays intelligible.
+* **SWING is grid feel; HUMANIZE is deviation.** Swing delays the odd 16ths by a
+  fraction of a step, consistently, for every voice. Humanize adds the
+  non-uniform movement on top.
+* **The seed owns the performance.** All stochastic decisions are a pure
+  function of `(seed, voice, tick, salt)`. Same seed + same edit = same
+  performance, always; change SEED (or press DICE) to get a different human.
+* **The instrument explains itself.** The editor's "WHY THIS HIT DIFFERS" readout
+  shows the last hit's velocity, timing deviation, pitch deviation and decay
+  scale, and the flag row (GHOST / ACCENT / RATCH / FERAL / LIVE / MUT) says
+  which mechanism bent it.
+
+## 10. MIDI note map
+
+The plug-in is an instrument: notes C1 (MIDI 36) to G1 (MIDI 43) trigger the
+eight voices live, on any MIDI channel. Velocity is used as the trigger velocity
+(0.02…1.0). Live hits go through the same render path as sequenced hits and are
+marked LIVE in the visual flags. Notes outside 36…43 are ignored. There is no
+MIDI output; `All Notes Off` / `All Sound Off` resets the voices.
+
+| Note | Voice |
+| --- | --- |
+| C1 (36) | KICK |
+| C#1 (37) | SNARE |
+| D1 (38) | CLAP |
+| D#1 (39) | CLOSED HAT |
+| E1 (40) | OPEN HAT |
+| F1 (41) | TOM |
+| F#1 (42) | PERC |
+| G1 (43) | ODD |
+
+## 11. Tips
 
 * Start with a factory pattern, set PERSONALITY to TIGHT, then move to LOOSE and
   FERAL at the same SEED to hear what the groove engine is doing.
@@ -157,7 +221,7 @@ IDs (they are host automation identities).
   player; RECALL is your way back.
 * Same SEED = same performance. Render it once and it is reproducible forever.
 
-## 9. Troubleshooting
+## 12. Troubleshooting
 
 | Symptom | Likely cause |
 | --- | --- |
@@ -168,7 +232,21 @@ IDs (they are host automation identities).
 | Groove feels wrong at high tempo | reduce SWING/HUMANIZE, raise STABILITY, or use TIGHT |
 | AU does not appear in the host | install `KLOPGEEST.component` into `~/Library/Audio/Plug-Ins/Components` and restart the host/registrar |
 
-## 10. Validation status
+## 13. Validation status
 
-`[FILL IN PHASE B: link to docs/VALIDATION.md with the exact validation date and
-PASS/FAIL/SKIP summary. Do not claim validation that was not run.]`
+See [VALIDATION.md](VALIDATION.md) for the full evidence table. Status at the
+time of writing (Milestone 1, macOS arm64, ad-hoc local builds):
+
+- Headless suite: **570 checks, 0 failures, 0 skipped** (all five suites).
+- Demo render: 48.0 s, **−1.20 dBFS** peak, 0 full-scale samples, finite,
+  deterministic (SHA-256 `d5e1302282268585f7db370e88e1d4a96a4c4681b5477958b0a1751092285ffc`).
+- VST3 pluginval strictness 10: **PASS** (21/21 tests, seed `0x3eafa08`).
+- AU `auval -v aumu Klpg MLLW`: **AU VALIDATION SUCCEEDED** on the final
+  installed build (170 PASS groups; log `build/validate-logs/auval-final.log`).
+- AU and VST3 pluginval strictness 10 **with GUI tests**: **PASS** (25/25 each,
+  seed `0x3eafa08`; logs `build/validate-logs/pluginval-au-final.log`,
+  `pluginval-vst3-final.log`).
+- Manual DAW host session: **not performed** — no host GUI session was run for
+  this milestone; that is recorded as a limitation rather than claimed.
+
+No marketing claim here is made without the corresponding measurement above.

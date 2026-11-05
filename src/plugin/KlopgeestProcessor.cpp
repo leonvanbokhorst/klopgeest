@@ -25,10 +25,9 @@ KlopgeestProcessor::KlopgeestProcessor()
 {
     cacheParameterPointers();
 
-    editPattern = makeInitPattern();
-    pendingPattern = editPattern;
-    pendingPublish.store (true, std::memory_order_relaxed);
-    patternQueue.push (editPattern);
+    // Start on the first factory pattern so the host program list, the pattern
+    // selector and the audible groove all agree from the first frame.
+    loadFactoryPattern (0);
 
     startTimerHz (20);
 }

@@ -112,6 +112,7 @@ private:
     juce::Rectangle<float> cellsArea;
 
     unsigned int lastTriggerCount[kNumVoices] {};
+    unsigned int lastPatternChangeCounter = 0;
     float hitPulse[kNumVoices] {};
 };
 
