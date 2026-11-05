@@ -1,0 +1,16 @@
+# Build output
+build/
+build-*/
+cmake-build-*/
+*.o
+*.a
+*.dSYM/
+.DS_Store
+
+# Vendored dependencies (fetched, never committed)
+.deps/
+
+# Local logs / lock files
+*.log
+.build.lock/
+.compile_commands.json

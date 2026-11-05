@@ -1,0 +1,25 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": { "major": 3, "minor": 22, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "local",
+      "displayName": "Local JUCE checkout (Release)",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "KLOPGEEST_JUCE_DIR": "${sourceDir}/.deps/JUCE"
+      }
+    },
+    {
+      "name": "clean",
+      "displayName": "Fetch JUCE from GitHub (Release)",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
+    }
+  ],
+  "buildPresets": [
+    { "name": "local", "configurePreset": "local", "jobs": 10 },
+    { "name": "clean", "configurePreset": "clean", "jobs": 10 }
+  ]
+}
