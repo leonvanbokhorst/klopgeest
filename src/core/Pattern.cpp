@@ -99,8 +99,8 @@ namespace
 juce::String encodeFloatField (const Lane& lane, float Step::*member)
 {
     juce::String out;
-    out.preallocateBytes ((size_t) lane.length * 8);
-    for (int s = 0; s < lane.length; ++s)
+    out.preallocateBytes ((size_t) kMaxSteps * 8);
+    for (int s = 0; s < kMaxSteps; ++s)
     {
         std::uint32_t bits = 0;
         const float value = lane.steps[(size_t) s].*member;
@@ -113,10 +113,10 @@ juce::String encodeFloatField (const Lane& lane, float Step::*member)
 
 void decodeFloatField (const juce::String& text, Lane& lane, float Step::*member)
 {
-    if (text.length() != lane.length * 8)
+    if (text.length() != kMaxSteps * 8)
         return;
 
-    for (int s = 0; s < lane.length; ++s)
+    for (int s = 0; s < kMaxSteps; ++s)
     {
         const auto bits = (std::uint32_t) text.substring (s * 8, s * 8 + 8).getHexValue32();
         float value = 0.0f;
@@ -128,34 +128,36 @@ void decodeFloatField (const juce::String& text, Lane& lane, float Step::*member
 juce::String encodeBoolField (const Lane& lane, bool Step::*member)
 {
     juce::String out;
-    out.preallocateBytes ((size_t) lane.length);
-    for (int s = 0; s < lane.length; ++s)
+    out.preallocateBytes ((size_t) kMaxSteps);
+    for (int s = 0; s < kMaxSteps; ++s)
         out << (lane.steps[(size_t) s].*member ? '1' : '0');
     return out;
 }
 
 void decodeBoolField (const juce::String& text, Lane& lane, bool Step::*member)
 {
-    if (text.length() != lane.length)
+    if (text.length() != kMaxSteps)
         return;
-    for (int s = 0; s < lane.length; ++s)
+    for (int s = 0; s < kMaxSteps; ++s)
         lane.steps[(size_t) s].*member = text[s] == '1';
 }
 
 juce::String encodeRatchets (const Lane& lane)
 {
     juce::String out;
-    out.preallocateBytes ((size_t) lane.length);
-    for (int s = 0; s < lane.length; ++s)
-        out << (juce::jlimit (1, 4, lane.steps[(size_t) s].ratchet) + '0');
+    out.preallocateBytes ((size_t) kMaxSteps);
+    for (int s = 0; s < kMaxSteps; ++s)
+        // NB: cast to char — `int << String` would append the decimal digits
+        // ("49".."52") and silently break the fixed-length encoding.
+        out << (char) ('0' + juce::jlimit (1, 4, lane.steps[(size_t) s].ratchet));
     return out;
 }
 
 void decodeRatchets (const juce::String& text, Lane& lane)
 {
-    if (text.length() != lane.length)
+    if (text.length() != kMaxSteps)
         return;
-    for (int s = 0; s < lane.length; ++s)
+    for (int s = 0; s < kMaxSteps; ++s)
         lane.steps[(size_t) s].ratchet = juce::jlimit (1, 4, (int) text[s] - '0');
 }
 } // namespace

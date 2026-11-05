@@ -103,10 +103,23 @@ void Engine::process (juce::AudioBuffer<float>& output,
     }
 
     // --- 3. Render with sample accuracy -------------------------------------
-    if (numEvents > 1)
-        std::stable_sort (events, events + numEvents,
-                          [] (const SequencedEvent& a, const SequencedEvent& b)
-                          { return a.sampleOffset < b.sampleOffset; });
+    // In-place insertion sort: deterministic, and unlike std::stable_sort it
+    // cannot allocate a temporary buffer (which would violate the audio-thread
+    // contract). Event counts per block are tiny.
+    for (int i = 1; i < numEvents; ++i)
+    {
+        const SequencedEvent value = events[i];
+        int j = i - 1;
+        while (j >= 0
+               && (events[j].sampleOffset > value.sampleOffset
+                   || (events[j].sampleOffset == value.sampleOffset
+                       && events[j].voice > value.voice)))
+        {
+            events[j + 1] = events[j];
+            --j;
+        }
+        events[j + 1] = value;
+    }
 
     int cursor = 0;
     int next = 0;

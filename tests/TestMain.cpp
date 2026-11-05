@@ -1,6 +1,33 @@
 #include "tests/AllTests.h"
 #include "tests/TestHarness.h"
 
+// -----------------------------------------------------------------------------
+// Workstream test suites. Each workstream owns its own VoiceTests.* /
+// SequencerTests.* / MasterTests.* files; this runner links them in as soon as
+// they exist. The __has_include guards keep the build green while the files are
+// being written in parallel (the suites are then reported as missing, never
+// silently passed).
+// -----------------------------------------------------------------------------
+#if __has_include("tests/QaIntegrationTests.h")
+ #include "tests/QaIntegrationTests.h"
+ #define KLOPGEEST_HAS_QA_TESTS 1
+#endif
+
+#if __has_include("tests/VoiceTests.h")
+ #include "tests/VoiceTests.h"
+ #define KLOPGEEST_HAS_VOICE_TESTS 1
+#endif
+
+#if __has_include("tests/SequencerTests.h")
+ #include "tests/SequencerTests.h"
+ #define KLOPGEEST_HAS_SEQUENCER_TESTS 1
+#endif
+
+#if __has_include("tests/MasterTests.h")
+ #include "tests/MasterTests.h"
+ #define KLOPGEEST_HAS_MASTER_TESTS 1
+#endif
+
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <cmath>
 #include <cstdio>
@@ -267,6 +294,33 @@ int runAllTests()
     testAudioThreadSafety();
     testMutation();
 
-    std::printf ("\n%d checks, %d failures\n", klop_test::gChecks, klop_test::gFailures);
+    // --- QA cross-cutting suites -------------------------------------------
+#if defined(KLOPGEEST_HAS_QA_TESTS)
+    runQaIntegrationTests();
+#else
+    klop_test::skip ("QA integration suites (tests/QaIntegrationTests.* missing)");
+#endif
+
+    // --- Workstream suites --------------------------------------------------
+#if defined(KLOPGEEST_HAS_SEQUENCER_TESTS)
+    runSequencerTests();
+#else
+    klop_test::skip ("sequencer/groove test suite (tests/SequencerTests.* missing)");
+#endif
+
+#if defined(KLOPGEEST_HAS_VOICE_TESTS)
+    runVoiceTests();
+#else
+    klop_test::skip ("voice test suite (tests/VoiceTests.* missing)");
+#endif
+
+#if defined(KLOPGEEST_HAS_MASTER_TESTS)
+    runMasterTests();
+#else
+    klop_test::skip ("master/glue test suite (tests/MasterTests.* missing)");
+#endif
+
+    std::printf ("\n%d checks, %d failures, %d skipped\n",
+                 klop_test::gChecks, klop_test::gFailures, klop_test::gSkips);
     return klop_test::gFailures == 0 ? 0 : 1;
 }
