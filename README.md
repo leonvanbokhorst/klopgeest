@@ -6,7 +6,11 @@ you get up and dance.
 
 KLOPGEEST is a new, standalone JUCE instrument by **Master Lonn & Little Wan**,
 for macOS 12+ in AU, VST3 and Standalone formats. It is an independent project,
-informed by lessons from NAGLOED but sharing no code with it.
+informed by lessons from NAGLOED; no NAGLOED code is compiled into the
+instrument. One GPL-3.0-or-later research copy of NAGLOED's SpectraStrobe
+reference encoder and verifier is vendored under
+`reports/spectrastrobe/reference/` as a test oracle — see the provenance note
+there for the exact commit and why it is not part of the build.
 
 > *klopgeest* (Dutch) — a mischievous spirit that knocks and rattles around the
 > house. Not a ghost. Not a machine. Something in between that wants to be heard.
