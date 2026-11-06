@@ -141,38 +141,73 @@ proportional-but-not-maximum brightness, exactly as the 2019 field report descri
 
 ### KLOPGEEST numbers **[C]**
 
-| Quantity | Value | Why |
+> **Canonical units — read this before any other number in the pack.** Three quantities are used
+> throughout and they are **not** interchangeable; conflating them is a 12 dB error. Every document in
+> this pack, and every parameter, name and test, should say which one it means.
+>
+> | Symbol | Quantity | Formula |
+> |---|---|---|
+> | **`r`** | **Colour-to-reference amplitude ratio**, per carrier, per ear. **The canonical internal quantity.** | `colourPeak / refPeak` |
+> | **`f`** | Fraction of *format* full brightness | `f = r / kFullScaleRatio` |
+> | **dBFS** | Absolute level, only meaningful once the reference level is fixed | `20·log10(refAmp · r)` |
+
+**Fixed for the whole pack:** reference peak per channel **−36.0 dBFS** (`refAmp = 0.0158489`), and
+`kFullScaleRatio = 4.0` (`f = r/4`).
+
+| Meaning | `r` | `f` (% of full brightness) | dBFS at ref −36 |
+|---|---|---|---|
+| Dark | 0 | 0 % | −∞ |
+| The one real hardware session (observed dim, no green/yellow) | 0.0625 | **1.56 %** | −60.08 |
+| **KLOPGEEST default cap `rCap`** | **0.25** | **6.25 %** | **−48.04** |
+| The vendor mixing table's "full brightness" (1:1) | 1.00 | 25.0 % | −36.00 |
+| Format full brightness (4:1, the developer record) | 4.00 | 100 % | −23.96 |
+
+**The encoder is defined on `r`, not on dBFS and not on a percentage:**
+
+```
+r        = clamp( rCap × intensity × mappingOutput , 0 , rCap )
+colourAmp = refAmp × r            // 0.0158489 × r
+refAmp    = 10^(-36/20)           // −36.0 dBFS peak per channel
+```
+
+| Parameter | Value | Why |
 |---|---|---|
 | Reference peak per channel | **−36.0 dBFS** | The developer-record operating point. |
-| Colour peak at 100 % brightness | **−24.0 dBFS** (i.e. 4 × reference, +12 dB) | Same. |
-| Internal encode | `colourAmp = refAmp × kFullScaleRatio × brightness`, `kFullScaleRatio = 4.0` | One constant retunes every preset if hardware disagrees **[C]**. |
-| Default brightness ceiling | **25 %** of full scale (colour ≈ −36 dBFS) | Conservative default, see §4. |
-| Hard ceiling | **100 %** (colour ≈ −24 dBFS) | Cannot be exceeded by intent or defect. |
+| `kFullScaleRatio` | **4.0** | The format convention. One constant retunes every preset if hardware disagrees **[C]**. |
+| `rCap` — the **hard product cap** | **0.25** (6.25 % of full brightness, −48.04 dBFS) | The conservative default, and the value enforced in the encoder. See §4. |
+| `lightIntensity` 0…1 | `r = rCap × intensity` | 1.0 means *the cap*, not full brightness. |
+
+**The cap is `r = 0.25`, not "100 % of full brightness".** Nothing in the instrument can reach `f > 6.25 %`
+in normal operation. Stages above that belong to the research ladder in
+[`06-hardware-validation.md`](06-hardware-validation.md) §3, run once, at low hardware brightness, and
+never as a product setting.
 
 **MUST** expose `Reference Gain` and `Color Gain` as independent trims, as the vendor's own encoder
 does. That is what makes the 1:1/4:1 conflict non-fatal: if hardware testing shows dimness or
 saturation, the fix is a parameter, not a re-architecture.
 
-> **A clarification worth carrying into every conversation about this:** the conservative 25 % ceiling
-> lands **exactly on the 1:1 ratio** — colour equal to the reference. So the two positions in §3 are
-> not as far apart as they look: under the 4:1 model, 25 % of full brightness *is* the ratio the vendor
-> table calls "full brightness", and the developers call it 25 %. That is why the conflict has survived
-> so long without anyone noticing they were describing the same operating point from different ends.
-> It also means the conservative default is not arbitrary — **it is exactly the point where the
-> brightest vendor claim and the most cautious developer claim agree.**
+> **The observation that resolves most of the confusion, stated carefully.** The two positions in the
+> conflict differ by exactly a factor of four, which is why they keep being mistaken for each other:
+> **`r = 1.0` is "full brightness" to the vendor table and "25 % brightness" to the developers.** So
+> the argument was never really about the ratio — it was about what 100 % means. Carrying `r` as the
+> canonical quantity and `f = r/4` alongside it makes the disagreement visible instead of silent.
 
 ---
 
 ## 4. The conservative exposure question — and why it is a real tension
 
-The inherited research convention caps each colour carrier at **25 % of the reference peak** — i.e.
-25 % of full brightness. At reference −36 dBFS that is colour ≈ −48 dBFS.
+The inherited research convention caps each colour carrier at **`r = 0.25`** — 25 % of the *reference
+amplitude*, which is **6.25 % of full brightness**, i.e. −48.04 dBFS against a −36 dBFS reference.
 
 **This is a genuine, unresolved tension, and builders must not paper over it.** A real hardware
-session on a Kasina + DeepVision at an even higher reference (−30 dBFS) with colours at 6.25 % of
-reference showed **red, blue and violet and left/right asymmetry, but no convincing green or yellow**,
-and colour crossfades read as fading to black. That configuration was roughly 30 dB below the
-developer-record full-brightness colour level.
+session on a Kasina + DeepVision, at reference −30 dBFS with colours at `r = 0.0625`
+(−54.1 dBFS absolute), showed **red, blue and violet and left/right asymmetry, but no convincing green
+or yellow**, and colour crossfades read as fading to black. At `r = 0.0625` that configuration was
+**1.56 % of full brightness** — about 36 dB below the developer-record full-brightness level.
+
+The gap to `rCap = 0.25` is only 12 dB, i.e. `f` rises from 1.56 % to 6.25 %. **Both ends of that range
+are far below the vendor's own "full brightness" point.** That is the crux: the entire product range
+may sit under the decoder's useful floor, and no offline measurement can say whether it does.
 
 What that does and does not prove:
 
@@ -185,8 +220,8 @@ What that does and does not prove:
   colour identity.** At conservative levels green and yellow may be weak or absent. See
   [`03-light-engine-design.md`](03-light-engine-design.md) §2.
 
-**KLOPGEEST position [C]:** ship a conservative default (25 %), expose the ceiling as the INTENSITY
-macro's maximum, and resolve the usable range with the hardware ladder in
+**KLOPGEEST position [C]:** ship at `rCap = 0.25` (6.25 % of full brightness), let `lightIntensity`
+scale `r` from 0 to `rCap`, and resolve the usable range with the hardware ladder in
 [`06-hardware-validation.md`](06-hardware-validation.md) before any preset names a specific colour.
 Do not raise the default to compensate for dimness — resolve the ratio question first.
 
@@ -208,35 +243,48 @@ never enter the glue machine.**
 
 ### Headroom arithmetic **[I]**
 
-At full brightness the reference and all three colours are present at once, and all three colours can
-be at full level in the same ear simultaneously. The reference is hard-panned, so at most one ear sees
-it at any instant — the conservative assumption is that it is fully present:
+The reference and all three colours can be present at once, and all three colours can be at full level
+in the same ear simultaneously. The reference is hard-panned, so at most one ear sees it at any
+instant — the conservative assumption is that it is fully present. Coherent (worst-case) sum:
 
-```
-3 colours  3 × 0.0631 (−24 dBFS) = 0.1893
-reference          0.0158 (−36 dBFS)
-worst-case coherent sum          = 0.2051  →  −13.8 dBFS
-```
-
-(For comparison, the predecessor's tooling generated colours at `scale 0.075` = −22.5 dBFS, giving
-3 × 0.075 + 0.015 = 0.240 → −12.4 dBFS. Same order; the difference is which full-brightness level
-you adopt.)
-
-So the carriers alone cannot clip. But they share the digital ceiling with the music:
-
-| Programme peak | + carriers (worst case) | Total |
+| `r` | 3 colours + reference | Sum, dBFS |
 |---|---|---|
-| −6 dBFS (0.501) | 0.205 | 0.706 → **−3.0 dBFS** — fine |
-| −2 dBFS (0.794) | 0.205 | 0.999 → **−0.01 dBFS** — at the edge |
-| −0.4 dBFS (KLOPGEEST default ceiling) | 0.205 | 1.160 → **+1.3 dBFS** — clips |
+| 0.25 (**the product cap**) | 3 × 0.003962 + 0.015849 = 0.027736 | **−31.14** |
+| 1.00 (vendor "full brightness") | 3 × 0.015849 + 0.015849 = 0.063396 | −23.96 |
+| 4.00 (format full brightness) | 3 × 0.063396 + 0.015849 = 0.206036 | −13.72 |
+
+So the carriers alone never clip. But they share the digital ceiling with the music.
+
+### The rule: reserve what is actually needed, not a fixed number
+
+**Do not hard-code a −6 dBTP programme ceiling.** That over-attenuates by 5 dB at the product cap and
+makes the light-on render audibly quieter for no reason — which in turn makes the "audio is unchanged"
+acceptance test impossible to pass (see [`05`](05-acceptance-and-tests.md) §4 C1).
+
+**Correct rule [C]:** compute the reservation from the carrier cap in force.
+
+```
+carrierSum   = 3 · refAmp · rCap + refAmp           // coherent worst case
+programmeCeiling = min( userCeiling , 10^(TOTAL_PEAK_TARGET/20) − carrierSum )
+TOTAL_PEAK_TARGET = −1.0 dBFS                        // design target, not a format requirement
+```
+
+| `rCap` | carrierSum | programme ceiling | Reduction vs the −0.4 dBFS default |
+|---|---|---|---|
+| 0.25 | −31.1 dBFS | **−1.27 dBFS** | **0.9 dB** |
+| 1.00 | −24.0 dBFS | −1.64 dBFS | 1.2 dB |
+| 4.00 | −13.7 dBFS | −3.29 dBFS | 2.9 dB |
+
+At the product cap the programme is attenuated by **less than 1 dB** — inaudible in practice, and
+measurable in a test. **This attenuation is a declared, documented change, not a hidden one.**
 
 **Requirements**
 
-- **MUST** reserve carrier headroom explicitly. Recommended **[C]:** when light is enabled, the
-  effective programme ceiling becomes **−6 dBTP**; when light is disabled, the existing ceiling
-  behaviour is untouched.
-- **MUST NOT** achieve this by scaling the carriers with the programme level — that turns programme
-  dynamics into brightness modulation, which is exactly the failure the format warns about.
+- **MUST** reserve carrier headroom explicitly, by this rule.
+- **MUST** expose the computed ceiling and the resulting attenuation in `VisualState` so the
+  behaviour is observable, not inferred.
+- **MUST NOT** achieve the reservation by scaling the carriers with the programme level — that turns
+  programme dynamics into brightness modulation, which is exactly the failure the format warns about.
 - **MUST NOT** put a limiter or clipper after the carriers. Clipping a 19 kHz sine produces harmonics
   and intermodulation across the whole band: audible, and decoded as arbitrary colour.
 
@@ -262,10 +310,15 @@ instrument: hats, claps and ODD are broadband and transient-rich by design.
   the four carrier bands**, and at minimum ≤ −40 dB relative to the carrier in that band. If a
   minimum-phase 8th-order filter at 15 kHz does not get there for hats/claps, either go steeper or
   accept a lower programme ceiling — do not silently ship the shallow filter.
-- Alternative **[C]**, worth considering because it costs the audio nothing: **band-stop the four
-  carrier bands** (four narrow notches at 18.2/18.7/19.2/19.7 kHz) instead of low-passing the whole
-  programme. Hats lose inaudible content above 18 kHz; nothing audible changes. This is not
-  vendor-documented, so it is an experiment, not a substitution.
+- Alternative **[C]**: **band-stop the four carrier bands** (four narrow notches at
+  18.2/18.7/19.2/19.7 kHz) instead of low-passing the whole programme. This is not vendor-documented,
+  so it is an experiment, not a substitution.
+  - **What it buys:** the *magnitude* response in the audible band stays flat, so the music is
+    spectrally unchanged. That is a materially better outcome than a 15 kHz low-pass on a percussion
+    instrument, and it is why it is worth trying first.
+  - **What it does not buy:** an IIR notch shifts phase well below its own corner, so the samples
+    below 16 kHz are **not** bit-identical to a light-off render. Do not claim they are. See
+    [`05`](05-acceptance-and-tests.md) §4, criterion C1, which is written to survive exactly this.
 
 ---
 
@@ -346,6 +399,7 @@ to 100 %.
 6. Per-sample gain interpolation; ≥ 5 ms edges for signal integrity, ≥ 20 ms for safety.
 7. Stereo only; refuse or warn on mono, on sample rates outside 44.1/48 kHz, and on any downstream
    stage that will resample.
-8. Output headroom reserved when light is on (recommended program ceiling −6 dBTP).
+8. Output headroom reserved when light is on, computed from the carrier cap in force (§5) — not a
+   fixed ceiling. At the product cap the attenuation is 0.9 dB.
 9. No dither, no metadata, no limiting, no saturation, no EQ after the carriers.
 10. Nothing in this document may be presented to a user as a safety or health claim.

@@ -83,15 +83,24 @@ green again. 250 ms make-before-break crossfades, 300 ms fades.
 Run the **same sequence** at a fixed set of colour levels, ascending, one pass each, with the hardware
 settings unchanged between files:
 
-| Step | Colour level (ratio to reference) | Purpose |
-|---|---|---|
-| L0 | 6.25 % | Minimum. Is anything visible at all? |
-| L1 | 12.5 % | |
-| L2 | 25 % | **The intended product ceiling.** Is it usable? |
-| L3 | 50 % | Research only — above the product ceiling |
-| L4 | 100 % | Research only — the developer-record full brightness |
+Units are **`r`** — colour amplitude ÷ reference amplitude, with `f = r/4` as the fraction of format
+full brightness ([`01`](01-signal-spec.md) §3).
 
-**Stop the ladder as soon as a level is comfortable and visible.** L3/L4 exist to answer "is our cap
+| Step | `r` | `f` (% of full brightness) | dBFS at ref −36 | Purpose |
+|---|---|---|---|---|
+| L0 | 0.0625 | 1.56 % | −60.1 | The level the one prior session used. Re-baseline: what exactly was visible? |
+| L1 | 0.125 | 3.13 % | −54.1 | |
+| L2 | **0.25** | **6.25 %** | **−48.0** | **The product cap (`rCap`) — the whole point of the ladder.** Is it usable? |
+| L3 | 0.50 | 12.5 % | −42.0 | Research only — above the product cap |
+| L4 | 1.00 | 25 % | −36.0 | Research only — the vendor table's "full brightness" point |
+| L5 | 4.00 | 100 % | −24.0 | Research only — the developer-record full brightness |
+
+**L0–L2 are the product question. L3–L5 are the "is our cap too conservative?" question.** If L2 is
+usable, the policy stands. If only L4 or L5 are usable, the product cap needs a formal safety review —
+not a parameter bump — because it would mean the instrument cannot reach a visible brightness without
+also going 12–24 dB past the conservative convention.
+
+**Stop the ladder as soon as a level is comfortable and visible.** L3–L5 exist to answer "is our cap
 too conservative?", not to be used. They are research stimuli: short, one pass, ascending, never
 looped, and they need the explicit agreement of everyone in the room. If any level causes discomfort,
 that is the ceiling and it is a finding.
@@ -104,8 +113,8 @@ unwanted colours, flicker, comfort.
 - At what level does each colour become reliably visible? *(Closes S4 in `04`.)*
 - Is green systematically weaker than red and blue? *(The prior session suggests yes. Confirm or
   refute — and if confirmed, the per-colour balance trim becomes a required parameter, not an option.)*
-- Does a 25 %-to-25 % crossfade read as a mix or as a dip to black? *(The `make-before-break` rule
-  should fix the dip; this tests it.)*
+- Does an `r = 0.25`-to-`r = 0.25` crossfade read as a mix or as a dip to black? *(The
+  `make-before-break` rule should fix the dip; this tests it.)*
 - Is the intended product ceiling usable, or must the ceiling policy change?
 
 ### T2 — Mapping discrimination *(the core of issue #6)*
@@ -130,7 +139,7 @@ impression into a datum.
 Mix programme + carriers at −24, −18, −12 and −6 dBTP.
 
 Find the level at which detection drops out or the colours become unstable. Record it. This calibrates
-the headroom reservation in [`01`](01-signal-spec.md) §5 and the −6 dBTP ceiling in `04` §7.
+the headroom reservation rule in [`01`](01-signal-spec.md) §5 and R4 in `04` §7.
 
 **Never raise brightness to fix a dropout.** Fix signal integrity first.
 

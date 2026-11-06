@@ -61,16 +61,16 @@ Adapted from the inherited research rules R1–R12, rewritten for KLOPGEEST.
 | # | Rule | Enforced by |
 |---|---|---|
 | **K1** | **Off by default.** No carrier is generated until the user explicitly enables light. | `lightEnabled` default false; encoder returns immediately when false. |
-| **K2** | **No repeated flicker.** Luminance modulation rate ≤ **2.5 Hz** by construction, and the governor's token bucket caps opposing ≥ 10 % luminance edges at **3 per second**. | Governor (`03` §5). This is a hard encoder limit, not a UI recommendation. |
-| **K3** | **Smooth envelopes.** Attack and release **≥ 20 ms hard** for every light channel, ≥ 50 ms for artistic events. | Slew limiter before the encoder; a config that violates it is clamped, not honoured. |
+| **K2** | **No repeated flicker.** Luminance modulation ≤ **2.5 Hz** by design, and the governor caps the light at **≤ 3 flashes (≤ 6 transitions) in every sliding 1-second window**. A flash is one opposing *pair* of ≥ 10 % luminance changes, per WCAG 2.3.1. | Governor (`03` §5.1) — exact sliding-window accounting, not a token bucket. A hard encoder limit, not a UI recommendation. |
+| **K3** | **Smooth envelopes.** Attack and release **≥ 20 ms hard** for every artistic light transition, ≥ 50 ms for deliberate events. | Slew limiter before the encoder; a config that violates it is clamped, not honoured. **One explicit exception: panic (K10) — see below.** |
 | **K4** | **No step from black to full, and no step to black.** Every light event starts and ends at zero amplitude with zero slope (cubic smoothstep). | Envelope generator shape; asserted offline. |
 | **K5** | **Make before break.** A colour transition reaches its target before the outgoing one begins to fall. Overlap ≥ 100 ms. | Transition logic in the encoder. |
 | **K6** | **Red gets a lower ceiling** than green and blue (saturated red is the most provocative). | Per-colour ceiling multiplier: red 0.7, green 1.0, blue 1.0 of the intensity cap. **[C]** conservative default. |
-| **K7** | **The intensity ceiling is enforced in the encoder**, not in the UI. A preset, a corrupted state or a future feature cannot exceed it. | `colourAmp = clamp(...)` with the cap applied after every other scaling. |
+| **K7** | **The intensity ceiling is enforced in the encoder**, not in the UI. A preset, a corrupted state or a future feature cannot exceed `r = rCap` (default 0.25 — see the canonical units in [`01`](01-signal-spec.md) §3). | `r = clamp(rCap · intensity · mapping, 0, rCap)` applied after every other scaling. |
 | **K8** | **The reference carrier is not an artistic channel.** Its 20 Hz panning may not be used, amplified or made visible. | It carries no colour; the mapping API cannot reach it. |
 | **K9** | **Every session starts dim.** The stored intensity is restored, but the stored *previous brightness ramp* is not; nothing auto-ramps up. | No "resume where you were" for intensity. |
-| **K10** | **Panic within 50 ms, click-free.** Colours to zero first, then the reference, with a ≤ 5 ms ramp. | §4. |
-| **K11** | **Disabling light restores the instrument exactly.** Audio, timing, state, CPU behaviour and host sync are unchanged. | C1 in [`05`](05-acceptance-and-tests.md). |
+| **K10** | **Panic within 50 ms, click-free.** Colours to zero first, then the reference, each with a ≤ 5 ms ramp. | §4. **The one documented exception to K3** — and an exception in kind, not degree: panic is a stop, not an artistic transition. Single, isolated, at most once per session. |
+| **K11** | **Disabling light restores the instrument exactly.** Audio, timing, state, CPU behaviour and host sync are unchanged — bit-identically. | C1a in [`05`](05-acceptance-and-tests.md) §4. |
 | **K12** | **No "safe" claim anywhere.** "Conservative", "with an immediate stop", "signal-safe file". Never "safe", "healing", "calming", "entrainment", "therapeutic". | Review; a grep in CI is cheap. |
 
 ### What the 2.5 Hz figure is and is not
@@ -91,12 +91,27 @@ instrument can produce the light, it must be able to stop it.
 
 | # | Requirement |
 |---|---|
-| P1 | The panic is a **parameter-level atomic**, read in `processBlock`, not a message-thread action. It works when the host transport is stopped and when the host is hung mid-block. |
+| P1 | The panic is a **parameter-level atomic**, read in `processBlock`, not a message-thread action. It works when the host transport is stopped, and it takes effect at the top of the **next** callback. |
+| P1a | **Know its limit, and say so in the manual.** If the host stops calling `processBlock` — a hung audio thread, a frozen app, a suspended device — no plug-in-side atomic can execute, and the last block may repeat. **The plug-in-side panic is therefore best-effort, not a guarantee.** The guarantees that always work are physical: glasses off or one eye covered (the fastest), then the hardware's own LED-brightness control to minimum, then power. Never present the software panic as the primary stop. |
 | P2 | It is **visible in the editor at all times** when light is enabled, with a keyboard shortcut. Never behind a menu, a disclosure or a settings tab. |
 | P3 | It **also fires** on: `prepareToPlay`, `releaseResources`, `setStateInformation`, preset change, host bypass, and the MIDI all-notes-off/all-sound-off path. A preset change must not leave a colour carrier running. |
 | P4 | The stop **order is colours first, then the reference**, each with a ≤ 5 ms ramp, completed within 50 ms. Reason: on sudden signal loss the decoder may hold the last brightness, and a persistent bright image is worse than a slow fade. This ordering is a **precaution whose necessity is [O]** — it is cheap, so do it. |
 | P5 | `Engine::reset` resets light state too (hook **H6**). Today `Engine::reset` resets voices and sequencer only. |
 | P6 | After panic, light stays off until the user re-enables it. No automatic recovery, no "it's fine now". |
+
+### K3 vs K10 — why the 5 ms panic ramp is allowed
+
+The two rules look contradictory, so a builder will ask. They are not:
+
+- **K3 governs artistic transitions** — the light changing because the music changed. Those are the
+  ones the 20 ms floor exists for: they repeat, they are part of the composition, and they carry both
+  the crosstalk risk and the flash risk.
+- **K10 governs a stop** — the light going away because a human demanded it. It happens once, it is
+  followed by silence, and a slow stop is strictly worse than a fast one. A 20 ms floor here would be
+  a safety regression dressed as consistency.
+
+Make the distinction explicit in the code: **the panic path must not pass through the artistic slew
+limiter.** If it does, panic silently becomes a 20 ms fade and the 50 ms target is missed.
 
 **On the 50 ms figure:** this is an inherited requirement and it is a *target*, not a measurement.
 It has never been measured on hardware (you would need a photodiode). State it as a design target in
@@ -161,7 +176,7 @@ output bus. That changes the risk picture compared with an offline renderer.
 | R1 | **Stereo only for light.** Detect the output channel count. In a mono instance, disable light with a visible `lightUnsupported` status — never silently emit a scheme that loses its L/R information. |
 | R2 | **Sample-rate guard.** 44.1 and 48 kHz are the documented rates. At other rates, warn. Never resample internally to fake it. |
 | R3 | **Never put the carriers inside a limiter, EQ or saturator.** The glue machine is before the injection point; nothing may come after it (`02` §3). |
-| R4 | **Reserve headroom.** With light enabled, the programme ceiling is limited to **−6 dBTP** so the carriers cannot push the sum to full scale (`01` §5). |
+| R4 | **Reserve headroom.** With light enabled the programme ceiling becomes `min(userCeiling, 10^(−1/20) − carrierSum)`, computed from the carrier cap actually in force — **not a fixed −6 dBTP**. At the product cap the reservation is **0.9 dB**, not 5.6 dB (`01` §5). |
 | R5 | **No dither, no noise shaping, no metadata, no normalisation** added by the light stage. |
 | R6 | **Document the downstream conditions** in the manual: no Bluetooth, no OS EQ/spatial audio/loudness processing, no lossy re-encode below 320 kbps CBR stereo, no mono-summing, no resampling. And say *why*: they destroy or corrupt the control signal, not because KLOPGEEST is fragile. |
 | R7 | **Detect what is detectable, warn about the rest.** The plug-in can see the bus layout and the sample rate. It cannot see the user's OS audio chain or a downstream Bluetooth link. Do not imply it can. |

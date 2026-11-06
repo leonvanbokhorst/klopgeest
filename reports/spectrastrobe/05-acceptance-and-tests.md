@@ -29,6 +29,13 @@ for it.
 
 ### 2.1 The golden vectors
 
+> **Units.** Every ratio quoted in this section is **`r`** — colour amplitude ÷ reference amplitude,
+> the canonical quantity defined in [`01`](01-signal-spec.md) §3. **`r = 0.25` is the product cap and
+> equals 6.25 % of full brightness.** Absolute dBFS values below are computed at the **inherited
+> reference of −30 dBFS** because that is what the measured values were taken at; at KLOPGEEST's
+> proposed −36 dBFS reference every absolute number shifts by 6 dB and **every ratio is unchanged**.
+> Decide the reference level before freezing the golden file, or generate the set twice.
+
 Five carriers-only signals, 48 kHz, no programme, with a fixed reference and a linear (unity-centre)
 colour pan. They are small enough for a unit test and they discriminate exactly the mistakes people
 actually make: wrong pan law, factor-of-two, dB/linear confusion, clamp in the wrong place.
@@ -145,8 +152,26 @@ must implement and measure both.
 | Check | Method | Pass |
 |---|---|---|
 | **B1** minimum edge time | Per light channel, find the 10 %→90 % and 90 %→10 % rise/fall times of every transition in the rendered 6-channel gain trace. | Every edge ≥ 20 ms. **Fail the build**, do not clamp silently. |
-| **B2** luminance edge rate | `Y = 0.21·R + 0.72·G + 0.07·B` per ear; count opposing pairs of changes each ≥ 10 % of the ceiling. Sliding 1 s window. | ≤ **3** in every window over the whole render. |
-| **B3** no modulation in 3–30 Hz | FFT of `Y(t)` after removing the DC and the intentional slow envelope. | No peak in 3–30 Hz above **10 %** of the mean level. |
+| **B2** flash rate — **every** sliding second | `Y = 0.21·R + 0.72·G + 0.07·B` per ear. Detector: a **transition** is a reversal of `dY/dt` after `Y` moved ≥ 10 % of the ceiling since the previous extremum. Count transitions, **not** flashes, and require ≤ 6 in every sliding 1 s window (6 transitions ⇒ ≤ 3 flashes). Scan the whole render with a 1-sample stride, not 1 s hops. | ≤ **6 transitions (⇒ ≤ 3 flashes)** in **every** window; zero violations. Test both ears independently. |
+| **B3** no modulation in 3–30 Hz | FFT of `Y(t)` after removing DC and the intentional slow envelope. | No peak in 3–30 Hz above **10 %** of the mean level. **This is a spectral check, not a safety proof** — `Y` is a proxy for luminance, not luminance. |
+
+> **On B2 and proxies.** The governor bounds a *computed* brightness proxy. It does not bound photons:
+> per-colour LED efficiency is **[O]**, so a signal that passes B2/B3 perfectly can still be
+> physically flickerier than the model predicts. B2/B3 are necessary conditions. Only the photodiode
+> measurement in [`06`](06-hardware-validation.md) T6 is evidence about light. Do not describe a
+> green B2/B3 as "flicker-free".
+
+**B2 boundary tests — mandatory, because sliding-window off-by-ones are invisible in normal use:**
+
+| Case | Expected |
+|---|---|
+| Exactly 6 transitions spread over exactly 1.000 s | **pass** |
+| Exactly 6 transitions over 0.999 s | **fail** |
+| 6 transitions in a burst at t = 0, then 1 at t = 0.5 s | **fail** (7 in the first window) |
+| Steady 3 Hz square `Y` envelope (6 transitions/s) | **pass** |
+| Steady 3.5 Hz square `Y` envelope (7 transitions/s) | **fail** |
+| The PULSE mapping at 120 BPM and at 200 BPM | **pass**, with the governor idle at 120 and possibly engaging at 200 |
+| Song-position jump (host seek) mid-render | window state is reset deterministically, not left carrying stale timestamps |
 | **B4** governor actually engages | Drive a hostile state (ratchet 4 on every step, 200 BPM, all voices on, STABILITY 0). | B2 still holds; `governorActive` telemetry is non-zero. |
 | **B5** clamp is adversarial | A state or test hook requesting brightness 1.5× the ceiling. | Output clamped to the ceiling; the clamp is logged; no crash. |
 | **B6** make-before-break | A colour A→B transition. | B reaches its target before A starts to fall; overlap ≥ 100 ms; `Y(t)` never dips more than 10 %. |
@@ -163,7 +188,9 @@ These test the claims in [`03-light-engine-design.md`](03-light-engine-design.md
 
 | Check | Method | Pass |
 |---|---|---|
-| **C1** audio untouched | Same seed/pattern/params, light off vs light on. | Bit-identical below 16 kHz. (If a programme low-pass is used, "identical modulo the documented filter".) Prefer the four-notch approach, which leaves the audible band bit-identical.) |
+| **C1a** light **off** is exactly the old instrument | Same seed/pattern/params, `lightEnabled=false`, against a render from the pre-feature build. | **Bit-identical.** Enforced structurally: the light stage returns before it touches a sample. |
+| **C1b** light **on** does not change the music | Same seed/pattern/params, light off vs light on. | **Not bit-identical, and must not be claimed to be.** Assert: (i) every `SequencedEvent` (voice, sampleOffset, tickIndex, velocity, flags) is identical in both renders; (ii) the light-on programme, with the declared headroom gain removed and the declared filter inverse-applied, matches the light-off programme to ≤ −80 dBFS in 0–16 kHz. |
+| **C1c** the filter is honest | Measure the anti-alias/notch stage's response on the actual programme. | 17–20 kHz ≤ −40 dB re the carrier band, **and** 0–16 kHz magnitude flat within ±0.1 dB. A notch shifts phase; assert magnitude, declare the phase change. |
 | **C2** light is rhythmic on its own | Render carriers only, programme muted. Autocorrelation of `Y(t)`. | A clear peak at the pattern period; and the correlation profile differs between two different factory patterns. |
 | **C3** groove is used | Render STABILITY 1.0 and STABILITY 0.0. | The variance of the light's overlap shapes / spatial deviation differs by more than measurement noise. |
 | **C4** mutation without acceleration | Press MUTATE ×10 (or drive `mutationEpoch` in the test harness). | B2 still holds; the light texture measurably changes (hue/phase statistics differ) between epoch 0 and epoch 10. |
@@ -233,7 +260,7 @@ Restated from issue #6, made testable:
 | # | Criterion | Evidence |
 |---|---|---|
 | D1 | PULSE and COUNTERPOINT both render, and are structurally different (C6 holds for one and not the other). | `golden.json` + a rendered sample |
-| D2 | Light off produces a bit-identical instrument (C1). | CI test |
+| D2 | Light off produces a bit-identical instrument (C1a); light on leaves the music unchanged within the two declared differences (C1b, C1c). | CI test |
 | D3 | Intensity 0 → dark; intensity 1 → the ceiling, measured. | CI test |
 | D4 | Panic reaches silence within 50 ms in every path (P3). | CI test |
 | D5 | B1–B7 pass. | CI test |

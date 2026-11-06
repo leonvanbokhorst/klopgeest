@@ -199,10 +199,14 @@ moves. This is the mapping that could not exist as an audio effect.
 | **ANCHOR** | KICK + SNARE | EVENT → *position only* | — | L/R wander | 0.40 |
 
 - Because the lanes have **different lengths**, the three colour drivers drift against each other.
-  A 16-step hat lane, a 7-step perc lane and a 5-step odd lane produce a colour field that does not
-  repeat for 560 steps — at 120 BPM, four and a half minutes. The audio repeats in two seconds; the
-  light does not. That is the counterpoint, and it is the strongest single argument that this is a
-  composition and not a visualisation.
+  A 16-step hat lane, a 7-step perc lane and a 5-step odd lane have an LCM of **560 sixteenth-note
+  steps** — at 120 BPM, **70 seconds** (560 × 0.125 s). The hat lane alone repeats every 2 s and the
+  other two every 0.875 s and 0.625 s; **the colour field repeats only every 70 s.** That is 35× the
+  audio's fastest cycle, and it is the strongest single argument that this is a composition and not a
+  visualisation.
+  - Note the scaling honestly: a longer pattern (64 steps) or more lanes with mutually prime lengths
+    pushes the period into minutes; short lanes at fast tempi pull it back toward tens of seconds.
+    The claim is "far longer than the audio's own period", not a fixed duration.
 - **Total luminance is normalised** across the three channels while they cross-fade, so hue motion
   costs no luminance flashes. Note the caveat: LEDs differ in luminance at equal drive, so this is
   approximate; the governor in §5 is the backstop.
@@ -244,26 +248,63 @@ can produce unsafe or ugly light.
 
 ```
 for each channel c in {R,G,B} × {L,R}:
-    gain[c] = slewLimit (gain[c], minRiseMs = 20)        // signal + safety
-Y_lr    = 0.21·R + 0.72·G + 0.07·B                       // luminance estimate, per ear
-edge    = opposing ΔY of ≥ 10 % of the ceiling
-if edge and not bucket.tryConsume():                     // 3 tokens, refill 3/s
-    freeze luminance this frame, keep hue and position moving
+    gain[c] = slewLimit (gain[c], minRiseMs = 20)          // signal + safety
+Y[c]    = 0.21·R + 0.72·G + 0.07·B                         // luminance PROXY, per ear
+                                                           // c = the slower of the two ears
+
+// exact sliding-window flash accounting (see below), one ring per ear
+if Y has reversed direction after moving >= 10% of the ceiling:
+    if now - transitionTime[ring, N-1] < 1.0 s:            // N = 6
+        freeze luminance this frame, keep hue and position moving
+    else:
+        pushTransition(now)
 ```
+
+### 5.1 Definitions — write these into the code as comments
+
+A token bucket is **not** sufficient, and an earlier draft of this document was wrong to propose one. A bucket of
+3 refilling at 3/s allows 3 edges immediately and 3 more over the following second: 6 edges in one
+sliding second, which is 3 flashes — but only if every pair happens to pair up. It does not enforce a
+bound in *every* window. Use exact accounting.
+
+| Term | Definition |
+|---|---|
+| **Luminance proxy `Y`** | `0.21·R + 0.72·G + 0.07·B` per ear. An **estimate**, not a measurement. |
+| **Transition** | A reversal of `dY/dt` after `Y` has moved ≥ **10 % of the current ceiling** since the previous extremum. |
+| **Flash** | One opposing **pair** of transitions (WCAG 2.3.1's unit). One complete up-down or down-up cycle. |
+| **Budget** | **≤ 3 flashes in every sliding 1-second window** ⇒ at most **6 transitions** in any sliding 1 s. |
+
+**Implementation:** a 6-entry ring of sample counters per ear. A new transition is only admitted if the
+oldest of the previous 6 is at least `sampleRate` samples in the past. That is O(1), allocation-free,
+and exactly enforces the bound rather than approximating it. Six, not three, because a flash is a
+*pair*: allowing 3 transitions would cap the light at 1.5 flashes/s, which is stricter than necessary
+and would make the 2.5 Hz design pulse of §1.2 impossible.
+
+**Consistency check with §1.2:** a 2.5 Hz luminance pulse is 2.5 flashes/s and 5 transitions/s. That is
+inside a budget of 3 flashes / 6 transitions per second, with margin. The two numbers are compatible —
+but only under the flash-pair definition above. If a builder counts transitions against a budget of 3,
+the design violates its own governor.
+
+### 5.2 The rest of the governor
 
 - **Slew limit first.** 20 ms minimum edges are the safety floor (**[E]** safety rules) and also
   keep modulation sidebands inside the channel's own 500 Hz band (**[I]**, `01` §7).
-- **Luminance weights are an inference [I].** 0.21/0.72/0.07 are typical LED-luminance weights.
-  The Kasina's actual per-colour luminance is **[O]**. If measurement shows green is much weaker
-  (see §9), the weights change and nothing else does.
-- **Freeze luminance, not colour.** When the edge budget is exhausted the light holds its brightness
+- **Luminance weights are an inference [I], not a safety proof.** 0.21/0.72/0.07 are typical
+  LED-luminance weights. The Kasina's actual per-colour luminance is **[O]**. **The governor bounds a
+  computed proxy; it does not bound photons.** It cannot be presented as evidence that the physical
+  output is flicker-free — only a photodiode measurement can ([`06`](06-hardware-validation.md) T6).
+- **Freeze luminance, not colour.** When the budget is exhausted the light holds its brightness
   steady while hue keeps moving. This is deliberately the opposite of a mute: the light never blinks
   out to protect you, it *stops changing brightness and keeps being light*. It cannot be perceived as
-  an error and it is trivially testable offline (§7 T4).
+  an error and it is trivially testable offline (§7 C4).
 - **The governor is measurable.** Rendered offline, `Y(t)` can be counted for opposing ≥ 10 %
-  transitions per second. That number is an acceptance criterion, not an intention. **Neither the
-  inherited NAGLOED implementation nor any existing KLOPGEEST code implements this** — it is new work
-  and it is the single most important safety component.
+  transitions in **every** sliding 1 s window. That number is an acceptance criterion, not an
+  intention. **Neither the inherited NAGLOED implementation nor any existing KLOPGEEST code implements
+  this** — it is new work and it is the single most important safety component.
+- **Adversarial boundary tests are mandatory**, because off-by-one errors in a sliding window are
+  invisible in normal use: exactly 6 transitions in 1.000 s must pass; 6 transitions in 0.999 s must
+  fail; a burst of 6 at t=0 followed by 1 at t=0.5 s must fail; a steady 3 Hz square envelope must
+  pass; a steady 3.5 Hz square envelope must fail. See [`05`](05-acceptance-and-tests.md) §3.
 
 ---
 
@@ -294,13 +335,15 @@ Five operational criteria. The first four are offline tests a CI can run; the fi
 
 | # | Criterion | Test | Status today |
 |---|---|---|---|
-| **C1** | **Parallel, not an effect.** Enabling light does not alter the audio. | Render the same seed/pattern with light off and on; buffers must be bit-identical below 16 kHz. | Achievable by construction (§`02` §7). |
+| **C1a** | **Light off is exactly the old instrument.** | Render with `lightEnabled = false`; the buffer must be **bit-identical** to a render from the pre-feature build. | Achievable by construction: the light stage returns before touching a sample. |
+| **C1b** | **Light on does not change the music.** The signal path is the same instrument with a declared filter and a declared gain change. | The permitted differences are exactly two: the programme anti-alias/notch stage (magnitude-flat in the audible band) and the headroom attenuation of `01` §5 (≤ 1 dB at the product cap). Assert (i) every `SequencedEvent` is identical between light-off and light-on, and (ii) with the declared gain applied to the light-off render, the two agree to ≤ −80 dBFS in 0–16 kHz once the declared filter is also applied. | Achievable, and honest. **Do not promise bit-identity for C1b** — a notch shifts phase, and the gain change is real. |
+| **C1c** | **The filter does its job and does nothing else.** | Measure the programme's spectrum before and after the anti-alias/notch stage. | Pass when 17–20 kHz is ≤ −40 dB re the carrier band **and** the 0–16 kHz magnitude response is flat within ±0.1 dB. |
 | **C2** | **The light is rhythmic on its own.** | Render the carriers with the programme muted. The luminance envelope's autocorrelation must peak at the pattern period, and differ between two different factory patterns. A flat or non-periodic result is decoration. | **Not established.** Nothing built. |
 | **C3** | **It uses the groove.** | Render at STABILITY 1.0 (machine) and 0.0 (wild). The variance of the light's *overlap shapes* / spatial deviation must differ measurably. If identical, the light is not representing the groove. | **Not established.** |
 | **C4** | **It survives mutation without getting faster.** | Press MUTATE ten times. The light texture changes; the luminance edge rate stays inside the governor's budget. | **Not established.** Needs H4. |
 | **C5** | **A person can tell.** | With sound off and only the light: can a viewer distinguish TIGHT from FERAL above chance? PULSE from COUNTERPOINT? | **Not established, and only a person can establish it.** This is the artistic bar and it is the *definition of done* that matters most. |
 
-**The honest position:** C1–C4 are engineering claims this research can specify and a builder can
+**The honest position:** C1a–C4 are engineering claims this research can specify and a builder can
 test. C5 is the actual question of the issue — *is this light composing or decorating?* — and it is
 **not answerable by research**. It requires a build and a Kasina in a room with a person in it. Any
 claim that the mappings "work" before C5 is answered would be inference presented as finding.
@@ -315,7 +358,7 @@ Two macros, as the issue asks, plus the minimum switches. **[C]**, ranges propos
 |---|---|---|---|
 | `lightEnabled` | bool | **false** | Master opt-in. Off = not one sample of carrier is generated. |
 | `lightMapping` | PULSE / COUNTERPOINT / DRIFT | PULSE | Which personality. |
-| `lightIntensity` | 0.0–1.0 | 0.25 | Multiplies the colour ceiling. 1.0 = the research cap (25 % of full brightness), not 100 % of the format. |
+| `lightIntensity` | 0.0–1.0 | 0.25 | Sets `r = rCap · intensity`. **1.0 means the cap (`r = 0.25`, 6.25 % of full brightness, −48.04 dBFS at ref −36), not 100 % of the format.** See the canonical units table in [`01`](01-signal-spec.md) §3. |
 | `lightCoupling` | 0.0–1.0 | 0.7 | 0 = the light runs on its own slow clock, only loosely phase-locked to the bar. 1 = full event response. |
 | `lightReferenceGainDb` | −48…−24 dB | −36.0 | Format trim ([`01`](01-signal-spec.md) §3). |
 | `lightColorGainDb` | −36…−12 dB | −24.0 | Format trim. |
@@ -323,8 +366,8 @@ Two macros, as the issue asks, plus the minimum switches. **[C]**, ranges propos
 
 **INTENSITY is not a volume knob and must not be presented as one.** It is a *risk* control: it
 scales the maximum per-carrier amplitude. Its label, its tooltip and its behaviour should make that
-unmistakable. Its maximum (1.0 → 25 % of full brightness) is itself a conservative research
-convention, not a hardware limit **[O]**.
+unmistakable. Its maximum (1.0 → `r = 0.25` → **6.25 % of full brightness**) is itself a conservative
+research convention, not a hardware limit **[O]**.
 
 **COUPLING is the musical macro.** At 0 the light is a slow, self-running composition in the same
 key as the music; at 1 it answers the kit. The interesting values are in between, which is why it is
@@ -341,8 +384,8 @@ a continuous macro rather than a switch.
 
 ## 9. Design consequences of the hardware evidence
 
-The one real hardware session (a Kasina + DeepVision, colours at 6.25 % of a −30 dBFS reference)
-reported **red, blue and violet plus left/right asymmetry, but no convincing green or yellow**, and
+The one real hardware session (a Kasina + DeepVision, colours at `r = 0.0625` — 6.25 % of the
+reference amplitude, 1.56 % of full brightness, −54.1 dBFS absolute) reported **red, blue and violet plus left/right asymmetry, but no convincing green or yellow**, and
 crossfades that read as black. This must shape the design, not be explained away:
 
 1. **Do not encode meaning in colour identity.** A mapping whose message is "green = the hats, red =
@@ -354,9 +397,10 @@ crossfades that read as black. This must shape the design, not be explained away
    with a documented overlap. Cheap, and it removes an entire class of complaint.
 3. **Green may need its own gain.** Per-colour trim is already in the vendor's own encoder. If the
    hardware ladder confirms a green deficit, add a per-colour balance parameter — do not re-architect.
-4. **The dim floor is unknown [O].** At 25 % of full brightness we may be below the useful threshold.
-   That is exactly what the ladder in [`06`](06-hardware-validation.md) exists to find. Until it is
-   run, **the default is conservative and the documentation says the light may be dim.**
+4. **The dim floor is unknown [O].** The product range spans `f` = 0 to 6.25 % of full brightness;
+   the observed range was 1.56 %. Both may sit under the decoder's useful floor. That is exactly what
+   the ladder in [`06`](06-hardware-validation.md) exists to find. Until it is run, **the default is
+   conservative and the documentation says the light may be dim.**
 
 ---
 
@@ -367,7 +411,7 @@ A staged plan that keeps the risk visible at every step. **No stage is authorise
 | Stage | Deliverable | Proves |
 |---|---|---|
 | **L0** | Encoder only, no mappings. A fixed test pattern drives the six channels. Offline WAV via `klop-tool`. | Signal integrity: frequencies, levels, isolation, headroom, determinism. |
-| **L1** | Governor + PULSE. Offline render and measurement of the luminance edge rate. | C1, and that the safety budget is measurable and enforced. |
+| **L1** | Governor + PULSE. Offline render and measurement of the luminance edge rate. | C1a–C1c, and that the safety budget is measurable and enforced. |
 | **L2** | AGGREGATE + COUNTERPOINT + DRIFT. `mutationEpoch` (H4). | C2, C3, C4. |
 | **L3** | Hardware ladder on a real Kasina (`06`). | Detection, usable brightness range, colour identity, stop behaviour. |
 | **L4** | A person, the mappings, the five questions in `06` §5. | **C5 — the only one that answers the issue.** |

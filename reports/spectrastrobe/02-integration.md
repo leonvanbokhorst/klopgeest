@@ -199,12 +199,27 @@ The light engine adds two it must satisfy on its own: **carrier frequency and le
 ## 7. What a light-enabled render must not change
 
 The strongest structural test available, and the one that decides whether light is a parallel voice
-or an effect:
+or an effect. It is **two tests, not one** — an earlier draft of this document promised a single
+bit-identity gate that is impossible by construction, because the programme filter and the headroom
+gain are real, declared changes.
 
-> Render the same pattern, same seed, same params, twice — once with light off, once with light on.
-> **Below 16 kHz the two buffers must be bit-identical.**
+**C1a — light OFF must be bit-identical to the old instrument.**
 
-This is achievable because the light stage runs after the meters and the only thing it may do to the
-programme is the band-limiting in [`01-signal-spec.md`](01-signal-spec.md) §6. If band-limiting is
-implemented, the comparison becomes "identical below 16 kHz modulo the documented low-pass", which is
-weaker — another reason to prefer the four-notch approach, which leaves the audible band bit-identical.
+> Render the same pattern, seed and params with `lightEnabled = false`, against the pre-feature build.
+> The buffers must be identical, sample for sample.
+
+Achievable by construction: the light stage returns before touching a sample.
+
+**C1b — light ON must not change the music.**
+
+> Render with light on. Assert (i) every `SequencedEvent` (voice, sampleOffset, tickIndex, velocity,
+> flags) matches the light-off render exactly, and (ii) with the declared headroom gain removed and
+> the declared filter inverse-applied, the audible band matches to ≤ −80 dBFS.
+
+**Do not promise bit-identity here.** Two changes are permitted and both are real: the programme
+anti-alias/notch stage ([`01`](01-signal-spec.md) §6), which shifts phase even where it leaves
+magnitude flat, and the headroom reservation ([`01`](01-signal-spec.md) §5), which at the product cap
+is a **0.9 dB** attenuation. Both must be declared, measurable and reported in `VisualState`.
+
+If the four-notch approach works, the audible *magnitude* response stays flat and C1b is as strong as
+it can be. The phase change remains, and pretending otherwise would just make the test wrong.

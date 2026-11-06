@@ -44,6 +44,22 @@ commit, the checksums, and the maintainer's decision on this repository's indepe
 
 ---
 
+## One quantity to fix in your head first
+
+Three numbers are used throughout and they are **not** interchangeable — conflating them is a 12 dB
+error. [`01-signal-spec.md`](01-signal-spec.md) §3 defines them precisely; in short:
+
+- **`r`** — colour amplitude ÷ reference amplitude. **The canonical internal quantity.**
+- **`f`** — fraction of *format* full brightness, `f = r/4`.
+- **dBFS** — only meaningful once the reference level is fixed (this pack uses −36 dBFS).
+
+| | `r` | `f` | dBFS @ ref −36 |
+|---|---|---|---|
+| **The product cap** | **0.25** | **6.25 %** | **−48.0** |
+| Format full brightness | 4.0 | 100 % | −24.0 |
+
+`lightIntensity = 1.0` means **the cap**, not full brightness.
+
 ## The three things to take away
 
 1. **The ratio is 4:1, not 1:1.** A colour carrier at full brightness sits **+12 dB above** the

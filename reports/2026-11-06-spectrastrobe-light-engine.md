@@ -48,13 +48,15 @@ that the light is composed.
 
 Three mapping personalities with concrete numbers are proposed: **PULSE** (brightness carries the
 rhythm — the skeleton breathes), **COUNTERPOINT** (colour and space carry it — the light has its own
-metre and does not repeat for minutes where the audio repeats in two seconds), and **DRIFT** (time
+metre and repeats every 70 s where the audio repeats in 2 s), and **DRIFT** (time
 carries it — the light lags, holds a memory, and changes character on mutation rather than adding
 flashes). Two macros, INTENSITY and COUPLING, as the issue asked.
 
 **(d) There is a real, unresolved tension that a builder must not paper over: conservative ≠ usable.**
-The inherited conservative ceiling is 25 % of full brightness. When a predecessor project played a
-rigorously verified file at 6.25 % on a real Kasina, the observer saw red, blue and violet but **no
+The inherited conservative cap is **`r` = 0.25** — colour at 25 % of the *reference amplitude*, which
+is **6.25 % of format full brightness** ([`01`](spectrastrobe/01-signal-spec.md) §3 defines the units
+and the pack uses them everywhere). When a predecessor project played a rigorously verified file at
+**`r` = 0.0625** (1.56 % of full brightness) on a real Kasina, the observer saw red, blue and violet but **no
 convincing green or yellow**, and crossfades read as **fading to black** — although the file had
 0.0 ms of encoded black gap. Nobody established a cause. The conservative default may simply be below
 the decoder's useful floor. That question is answerable only by the hardware ladder in
@@ -111,10 +113,11 @@ yet tested), **not established** (outside the evidence), **not knowable with the
 |---|---|
 | 4:1 is the correct operating point | **Contested, resolved provisionally** — best-supported reading; one hardware test settles it. |
 | Luminance must stay below 3 Hz; colour/position can carry detail | **Provisional, well-founded** — WCAG 2.3.1 is established; that a Ganzfeld needs a stricter margin is inference. |
-| 25 % is a safe ceiling | **Not established.** It is a project convention, not a decoder spec or a physical threshold. |
+| `r` = 0.25 is a safe cap | **Not established.** It is a project convention, not a decoder spec or a physical threshold. |
 | The three mappings are musically distinct | **Not established.** Designed, not tested. |
 | Mutation should change character, not event rate | **Provisional** — design choice, testable (C4). |
-| Light is a genuinely parallel voice if the audio is bit-identical | **Provisional** — a clean structural test (C1), not yet run. |
+| Light-off output is bit-identical to the pre-feature instrument | **Provisional** — test C1a; achievable by construction. |
+| Light-on leaves the music unchanged | **Provisional** — test C1b; *not* bit-identical, because the declared filter and headroom gain are real. |
 | A person will experience it as a second rhythm | **Not knowable with these methods.** Requires C5/D8. |
 
 ---
@@ -172,17 +175,17 @@ single `kFullScaleRatio` constant and independent Reference/Colour gain trims: t
 not a rewrite.
 
 **T2 — The one hardware observation contradicts the optimistic reading of colour.** A rigorously
-verified file, at 6.25 % per carrier on a −30 dBFS reference, produced red, blue and violet but **no
+verified file, at `r` = 0.0625 per carrier on a −30 dBFS reference, produced red, blue and violet but **no
 convincing green or yellow**, and crossfades that read as black. Three explanations are compatible
 with the evidence and were never separated: (i) the level is simply below a threshold — which the
-4:1 model makes very plausible, since 6.25 % of reference is ~1.5 % of full brightness under it;
+4:1 model makes very plausible, since `r` = 0.0625 is **1.56 % of full brightness** under it;
 (ii) the hardware or the diffuser has a per-colour imbalance; (iii) observer/perceptual effects. The
 counter-evidence to the report's own optimism is real, and the design response is to **not encode
 meaning in colour identity**, to **make before break** on every transition, and to **allow a
 per-colour trim**.
 
-**T3 — Conservative and usable may be in direct conflict.** A 25 % ceiling of a −36 dBFS reference is
-−48 dBFS per colour. Under the 4:1 model that is roughly 6 % of full brightness. The safety
+**T3 — Conservative and usable may be in direct conflict.** The cap `r` = 0.25 against a −36 dBFS
+reference is −48.04 dBFS per colour. Under the 4:1 model that is roughly 6 % of full brightness. The safety
 literature's thresholds were written for screens with distance and a small stimulus area; a Ganzfeld
 removes both. So the conservative setting is conservative relative to a number that is itself a lower
 bound for a different geometry. There is no measured answer to "how bright is safe", and the report
@@ -195,8 +198,12 @@ answer is that rhythm moves into colour, overlap and space — but that is a **h
 is entirely possible that a viewer experiences PULSE and COUNTERPOINT as "the same glow, different
 colours". If so the design has failed and needs rethinking, not retuning.
 
-**T5 — The bit-identical-audio claim and the band-limiting need conflict.** Criterion C1 (light is a
-parallel voice) is cleanest if nothing touches the programme. But the format requires keeping
+**T5 — "Parallel voice" and "the audio is untouched" are not the same claim.** Criterion C1 was
+originally written as one bit-identity test and that was wrong: the programme filter and the headroom
+gain are real, declared changes, and a bit-identity gate would be impossible by construction. C1 is
+now split — C1a (light off, bit-identical), C1b (light on, music structurally unchanged), C1c (the
+filter does its job and nothing else). See [`05`](spectrastrobe/05-acceptance-and-tests.md) §4.
+The cleanest form of C1b would be if nothing touched the programme at all. But the format requires keeping
 programme energy out of 18–20 kHz, and KLOPGEEST's hats and claps are broadband. The report prefers
 four narrow notches over a full low-pass precisely because notches leave the audible band
 untouched — but that is an untested idea, not vendor guidance. If it does not work, C1 weakens to
@@ -204,7 +211,7 @@ untouched — but that is an untested idea, not vendor guidance. If it does not 
 
 **T6 — The inherited research is not an independent witness.** Much of the safety framing and several
 of the signal claims come from a project by the same author. Where the two research streams agree, that
-is not corroboration. The one place this mattered was caught and corrected: the inherited 25 %
+is not corroboration. The one place this mattered was caught and corrected: the inherited `r` = 0.25
 convention had been documented as applying to a −30 dBFS reference in some places and −36 dBFS in
 others, with the A/B protocol's own text initially mis-classifying which ladder steps sat above the
 ceiling — corrected by the maintainer on 5 November, and carried into this report as
@@ -309,7 +316,7 @@ see §9.
 
 1. **Whether the light works as art.** Criterion C5/D8. Needs a build, a Kasina and a person.
 2. **The decoder's transfer function.** Everything about brightness ratios rests on a model.
-3. **Whether a 25 % ceiling is usable.** The prior session's data hints it may not be.
+3. **Whether the `r` = 0.25 cap is usable.** The prior session (at `r` = 0.0625) hints it may not be.
 4. **Whether -36 dBFS reference / -24 dBFS colour is right for *this* hardware and firmware.** It is the
    best-supported reading, not a measurement.
 5. **Whether the four-notch alternative to low-passing the programme works.** It is an idea chosen
@@ -339,9 +346,9 @@ see §9.
 
 | If this turns out to be true | Then |
 |---|---|
-| Hardware shows colour at 4:1 is correct and usable at ≤ 25 % | The conservative defaults stand; ship. |
+| Hardware shows 4:1 is correct and `r` = 0.25 is usable | The conservative defaults stand; ship. |
 | Hardware shows 1:1 is correct | Every colour is currently 12 dB hot. Change one constant; re-run the ladder; the architecture is unaffected. |
-| Hardware shows the useful floor is above 25 % | The ceiling policy needs a formal safety review, not a parameter bump. The tension in T3 becomes the central design problem. |
+| Hardware shows the useful floor is above `r` = 0.25 | The cap needs a formal safety review, not a parameter bump. The tension in T3 becomes the central design problem. |
 | Green is systematically weak at any level | Per-colour balance becomes a required parameter and PULSE/COUNTERPOINT must not rely on colour identity (already the design). |
 | A viewer cannot distinguish PULSE from COUNTERPOINT | The mapping design has failed. Rethink what carries the rhythm; do not retune. |
 | The four-notch approach does not keep the programme out of 18–20 kHz | Fall back to a steep low-pass, accept that C1 weakens, and document the audible trade-off. |
@@ -392,7 +399,7 @@ would publish the grid the instrument spends its effort bending.
 
 The interesting consequence, and the part worth pursuing: **the instrument already contains the
 material for a light composition that a beat detector could never produce.** The per-lane polymeter
-means a colour field that does not repeat for minutes when the audio repeats in two seconds. The
+means a colour field whose period is 70 s when the audio's is 2 s. The
 mutation history means a character that evolves while the rhythm holds. The correlated drift means a
 slow, related, non-random movement that has no audio counterpart at that timescale. None of these are
 visible in the sound; all of them are computable at the moment the light needs them. That is not
@@ -430,7 +437,24 @@ Logged because they are real, and none of them is authorised by this mandate:
 
 ---
 
-## 12. Sources
+## 12. Corrections made after review
+
+An independent review of the first version of this pack found four defects. All are fixed; they are
+recorded rather than quietly edited because a builder reading the PR history should see what changed.
+
+| # | Defect | Fix |
+|---|---|---|
+| 1 | **The light ceiling had two definitions 12 dB apart.** `01` §3 used "25 % of *full brightness*" (colour ≈ −36 dBFS, `r` = 1.0) while `01` §4, `05` V2/V4/V5, `06` T1 and `03` used "25 % of the *reference*" (colour ≈ −48 dBFS, `r` = 0.25). A builder would have implemented one of two incompatible specs. | One canonical quantity, **`r`**, defined once in `01` §3 with `f = r/4` and dBFS alongside; `rCap = 0.25` (6.25 % of full brightness, −48.04 dBFS) is now the single product cap, and every macro, vector, ladder step and conclusion is stated in those units. |
+| 2 | **The governor could not enforce its own bound.** A token bucket of 3 refilled at 3/s permits 6 transitions in one sliding second. | Replaced with exact sliding-window accounting (a 6-entry ring of sample counters — 6 transitions ⇒ ≤ 3 flashes per WCAG 2.3.1), explicit flash/transition definitions, and mandatory adversarial boundary tests. The tension between the 20 ms artistic floor and the 5 ms panic ramp is now an explicit, reasoned exception; the panic's dependence on the host continuing to call `processBlock` is now stated as a limitation with the physical stop named as the real guarantee. |
+| 3 | **C1 was impossible by construction.** It promised bit-identical audio with light on, while `01` §5–6 require a programme filter and a headroom attenuation. | Split into **C1a** (light off: bit-identical), **C1b** (light on: identical *events*, music matched after removing the two declared changes), **C1c** (the filter does its job and nothing else). The headroom rule also changed: not a fixed −6 dBTP but computed from the carrier cap in force, so the attenuation at the product cap is **0.9 dB** rather than 5.6 dB. |
+| 4 | **The polymeter period was wrong.** 560 sixteenth-note steps at 120 BPM was given as "four and a half minutes". | It is **70 seconds** (560 × 0.125 s). Both the design document and the summary now say so, with the scaling stated honestly rather than rounded into rhetoric. |
+
+None of the four changes a conclusion about the format, the hardware evidence, or the architecture.
+They changed what the documents *say*, which is the part a builder implements.
+
+---
+
+## 13. Sources
 
 **Format and hardware** — full list with retrieval status in
 [`evidence/source-verification.md`](spectrastrobe/evidence/source-verification.md) §4. The ones that
