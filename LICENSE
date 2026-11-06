@@ -13,7 +13,13 @@ PARTICULAR PURPOSE. See the GNU General Public License for more details.
 
 JUCE is used under the terms of its own licensing. Building this project grants
 no JUCE rights beyond those you already hold. KLOPGEEST is an independent
-project inspired by lessons from NAGLOED; no NAGLOED source is included here.
+project inspired by lessons from NAGLOED; no NAGLOED source is compiled into
+this program. A GPL-3.0-or-later research copy of NAGLOED's SpectraStrobe
+reference encoder and verifier is vendored under
+`reports/spectrastrobe/reference/` for test-oracle purposes only, outside the
+build; its provenance, commit and checksums are recorded in
+`reports/spectrastrobe/reference/PROVENANCE.md`. Both projects carry the same
+licence and the same copyright holder.
 
 ---
 
