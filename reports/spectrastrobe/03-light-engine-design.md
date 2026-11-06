@@ -289,22 +289,29 @@ Six, not three, because a flash is a *pair*: a budget of 3 transitions would cap
 1.5 flashes/s, which is stricter than necessary and would make the 2.5 Hz design pulse of §1.2
 impossible. O(1), allocation-free.
 
-**Window semantics — decide these once and write them into the code:** the window is
-**closed at both ends and exactly `fs` samples long**. A transition exactly `fs` samples before `n`
-counts, so `n − t == fs` **rejects** and `n − t == fs + 1` admits. This is the conservative choice: it
-bounds the closed window, and therefore also bounds every half-open window, while the reverse is not
-true.
+**Window semantics — decide these once and write them into the code:** the window is **closed at both
+ends and one second long** — that is **`fs` sample *periods***, which contains **`fs + 1` sample
+*instants***. Do not call it "`fs` samples long"; that off-by-one is exactly where this class of bug
+lives. A transition exactly `fs` samples before `n` counts, so `n − t == fs` **rejects** and
+`n − t == fs + 1` admits. This is the conservative choice: it bounds the closed window, and therefore
+also bounds every half-open window, while the reverse is not true.
 
 **Implementation, R2 — the design pulse rate.** Track the timestamp of the previous transition of the
 same direction; admit **iff** `n − previousSameDirection ≥ 0.4·fs`. For a periodic luminance wave this
 is exactly a bound on the fundamental: consecutive same-direction transitions are one period apart, so
-requiring ≥ 400 ms enforces **≤ 2.5 Hz**. 2.5 Hz passes; 2.6 Hz and 3 Hz do not.
+requiring ≥ 400 ms enforces **≤ 2.5 Hz**. 2.5 Hz passes (exactly at the limit); 2.6 Hz, 2.75 Hz,
+3 Hz and above do not.
 
 **Why R1 alone is not enough — and this was the second review's finding.** R1 bounds *count*, not
-*rate*. A 3 Hz square wave is 6 transitions/s, which is ≤ 3 flashes/s and therefore **passes R1**,
-while violating the 2.5 Hz design limit stated in §1.2 and in `04` K2. A rolling count cannot bound a
-periodic frequency. R2 is what enforces it. Conversely R2 alone cannot catch an irregular burst, so
-both are needed and both are in the governor — not in a design note.
+*rate*. The clean counterexample is a **2.75 Hz square wave**: 5.5 transitions per second, hence at
+most **6 in any closed 1 s window** — it **passes R1** — while its same-direction spacing is **364 ms**
+and it therefore violates the 2.5 Hz limit in §1.2 and `04` K2b. A rolling count cannot bound a
+periodic frequency; R2 is what enforces it. Conversely R2 alone cannot catch an irregular burst, so
+both are needed, in the governor rather than in a design note.
+
+> **A 3 Hz square is the wrong counterexample** and an earlier draft used it. Because the window is
+> closed, transitions every 1/6 s put **seven inside `[0, 1]`**, so R1 rejects it as well — at 3 Hz both
+> rules bind and the example proves nothing about their independence.
 
 **Consistency check with §1.2:** a 2.5 Hz luminance pulse is 2.5 flashes/s and 5 transitions/s.
 That is inside R1's budget (3 flashes / 6 transitions per second) and exactly at R2's limit. The three

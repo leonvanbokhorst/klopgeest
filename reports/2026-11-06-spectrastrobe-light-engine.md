@@ -439,8 +439,8 @@ Logged because they are real, and none of them is authorised by this mandate:
 
 ## 12. Corrections made after review
 
-Two independent review rounds found seven defects — four in the first version of the pack, three more
-in the corrections themselves. All are fixed; they are recorded rather than quietly edited, because a
+Three independent review rounds found nine defects — four in the first version of the pack, and five
+more in the corrections themselves. All are fixed; they are recorded rather than quietly edited, because a
 builder reading the PR history should see what changed and why.
 
 | # | Defect | Fix |
@@ -454,18 +454,25 @@ A second review round on the corrected pack found two more, both in the fix itse
 
 | # | Defect | Fix |
 |---|---|---|
-| 5 | **The corrected sliding-window boundary cases were themselves wrong.** The rule is "at most 6 transitions in every 1 s window", under which **6 transitions inside 0.999 s passes** — the boundary table said it must fail. A compliant governor would have been failed by the pack's own acceptance gate. | Boundary cases corrected and split by rule: 6-in-0.999 s passes, 7-in-0.999 s fails, 7 spanning 1.2 s passes, 7 in `[0, 1.0]` inclusive fails. Window semantics are now stated — **closed at both ends, exactly `fs` samples**, so `n − t = fs` rejects and `fs + 1` admits — and the seven cases are unit tests on the admission predicate, because end-to-end tests cannot separate the two governor rules. |
-| 6 | **The 2.5 Hz design rate was asserted but not enforced.** Rule R1 bounds the *count* of transitions, not their *rate*: a **3 Hz square wave is 6 transitions/s**, satisfies "≤ 3 flashes/s", and passes — while breaking the stated ≤ 2.5 Hz limit. One merged sentence guaranteed neither. | Split into **K2a / B2** (flash count, governor rule R1) and **K2b / B2b** (pulse rate, governor rule R2: consecutive same-direction transitions ≥ 400 ms). Both are now governor rules with stated boundary behaviour, and both documents say plainly that they bound a *luminance proxy*, not photons. |
+| 5 | **The corrected sliding-window boundary cases were themselves wrong.** The rule is "at most 6 transitions in every 1 s window", under which **6 transitions inside 0.999 s passes** — the boundary table said it must fail. A compliant governor would have been failed by the pack's own acceptance gate. | Boundary cases corrected and split by rule: 6-in-0.999 s passes, 7-in-0.999 s fails, 7 spanning 1.2 s passes, 7 in `[0, 1.0]` inclusive fails. Window semantics are now stated — **closed at both ends, one second long, i.e. `fs` sample *periods* / `fs + 1` sample *instants***, so `n − t = fs` rejects and `fs + 1` admits — and the seven cases are unit tests on the admission predicate, because end-to-end tests cannot separate the two governor rules. |
+| 6 | **The 2.5 Hz design rate was asserted but not enforced.** Rule R1 bounds the *count* of transitions, not their *rate*: a **2.75 Hz square wave** passes "≤ 3 flashes/s" — at most 6 transitions in any closed 1 s window — while breaking the stated ≤ 2.5 Hz limit. One merged sentence guaranteed neither. | Split into **K2a / B2** (flash count, governor rule R1) and **K2b / B2b** (pulse rate, governor rule R2: consecutive same-direction transitions ≥ 400 ms). Both are now governor rules with stated boundary behaviour, and both documents say plainly that they bound a *luminance proxy*, not photons. |
 | 7 | **The C1b oracle was numerically unsound** (raised as optional; it is a real defect). It inverse-filtered the light-on render, which amplifies noise at a notch's deep stopband and makes any failure uninterpretable. | Compare **forward with forward**: apply the same documented filter and gain to the *light-off* render and compare that against the light-on render. |
 
-None of the seven changes a conclusion about the format, the hardware evidence, or the architecture.
+A third round found two example-level errors, both in the second round's fixes:
+
+| # | Defect | Fix |
+|---|---|---|
+| 8 | **The counterexample contradicted the boundary convention that had just been adopted.** "3 Hz passes R1" is not universally true: with a closed 1 s window, a 3.0 Hz square has transitions every 1/6 s, so **seven fall inside `[0, 1]`** and R1 rejects it too. At 3 Hz both rules bind, so the example demonstrated nothing about their independence. | **2.75 Hz** is the correct counterexample: 5.5 transitions/s, at most 6 in any closed window (R1 passes), same-direction spacing **364 ms** (R2 fails). Stated in `03` §5.1, `04` K2 and `05` §3, with the 3 Hz case retained explicitly as a non-discriminator. |
+| 9 | **The window was described as "exactly `fs` samples", which is off by one.** A closed interval of one second contains **`fs` sample periods** and **`fs + 1` sample instants**. | Reworded everywhere; the admission predicate `n − t > fs` is unchanged and correct. Noted as exactly where this class of bug lives. |
+
+None of the nine changes a conclusion about the format, the hardware evidence, or the architecture.
 They changed what the documents *say*, which is the part a builder implements.
 
-The pattern in defects 5 and 6 is worth naming, because it is the general failure mode of this kind of
-document: **the correction reproduced the original mistake one level down.** Fixing a wrong number
+The pattern in defects 5, 6, 8 and 9 is worth naming, because it is the general failure mode of this
+kind of document: **the correction reproduced the original mistake one level down.** Fixing a wrong number
 introduced a wrong boundary case; separating flash count from flash rate produced a single sentence
-that enforced neither. Both were caught only because someone read the *rules* rather than the
-conclusions. A builder should expect the same to happen in the implementation, and should write the
+that enforced neither; adopting a closed window made the very next example contradict it. Each was
+caught only because someone read the *rules* rather than the conclusions. A builder should expect the same to happen in the implementation, and should write the
 boundary tests in [`05`](spectrastrobe/05-acceptance-and-tests.md) §3 before writing the governor.
 
 ---

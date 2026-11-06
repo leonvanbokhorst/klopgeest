@@ -152,8 +152,8 @@ must implement and measure both.
 | Check | Method | Pass |
 |---|---|---|
 | **B1** minimum edge time | Per light channel, find the 10 %→90 % and 90 %→10 % rise/fall times of every transition in the rendered 6-channel gain trace. | Every edge ≥ 20 ms. **Fail the build**, do not clamp silently. |
-| **B2** flash count — **every** closed 1 s window | `Y = 0.21·R + 0.72·G + 0.07·B` per ear. A **transition** is a reversal of `dY/dt` after `Y` moved ≥ 10 % of the ceiling since the previous extremum. Count transitions, **not** flashes. Window is **closed at both ends, exactly `fs` samples**. Scan with a 1-sample stride, not 1 s hops. | ≤ **6 transitions (⇒ ≤ 3 flashes)** in **every** window; zero violations. Both ears independently. **B2 is only the flash-count bound** — it does not bound periodic rate. |
-| **B2b** design pulse rate — **governor rule R2** | Consecutive **same-direction** transitions must be ≥ **400 ms** apart, which bounds the fundamental at **≤ 2.5 Hz**. Unit-test the admission predicate directly; then measure the fundamental of `Y(t)` by autocorrelation on a long render. | No two same-direction transitions closer than 400 ms. 2.5 Hz square passes; 2.6 Hz and 3 Hz squares do not. |
+| **B2** flash count — **every** closed 1 s window | `Y = 0.21·R + 0.72·G + 0.07·B` per ear. A **transition** is a reversal of `dY/dt` after `Y` moved ≥ 10 % of the ceiling since the previous extremum. Count transitions, **not** flashes. Window is **closed at both ends and one second long — `fs` sample *periods*, `fs + 1` sample *instants***. Scan with a 1-sample stride, not 1 s hops. | ≤ **6 transitions (⇒ ≤ 3 flashes)** in **every** window; zero violations. Both ears independently. **B2 is only the flash-count bound** — it does not bound periodic rate. |
+| **B2b** design pulse rate — **governor rule R2** | Consecutive **same-direction** transitions must be ≥ **400 ms** apart, which bounds the fundamental at **≤ 2.5 Hz**. Unit-test the admission predicate directly; then measure the fundamental of `Y(t)` by autocorrelation on a long render. | No two same-direction transitions closer than 400 ms. 2.5 Hz square passes (exactly at the limit); 2.6 Hz, 2.75 Hz and 3 Hz do not. |
 | **B3** no modulation in 3–30 Hz | FFT of `Y(t)` after removing DC and the intentional slow envelope. | No peak in 3–30 Hz above **10 %** of the mean level. **This is a spectral check, not a safety proof** — `Y` is a proxy for luminance, not luminance. |
 
 > **On B2 and proxies.** The governor bounds a *computed* brightness proxy. It does not bound photons:
@@ -162,10 +162,15 @@ must implement and measure both.
 > measurement in [`06`](06-hardware-validation.md) T6 is evidence about light. Do not describe a
 > green B2/B3 as "flicker-free".
 
-**Why B2 and B2b are separate.** A rolling count cannot bound a periodic frequency. A **3 Hz square
-wave is 6 transitions per second**: it is ≤ 3 flashes/s, so it **passes B2**, while breaking the 2.5 Hz
-design limit in `03` §1.2 and `04` K2. B2b (governor rule R2) is what enforces the rate; B2 (rule R1)
-is what catches irregular bursts that B2b cannot see. Both live in the governor.
+**Why B2 and B2b are separate.** A rolling count cannot bound a periodic frequency. The clean
+counterexample is a **2.75 Hz square wave**: 5.5 transitions per second, so at most **6 in any closed
+1 s window** — it **passes B2** — yet its same-direction spacing is **364 ms**, so it breaks the 2.5 Hz
+design limit and **fails B2b**. B2b (governor rule R2) is what enforces the rate; B2 (rule R1) is what
+catches irregular bursts that B2b cannot see. Both live in the governor.
+
+> **Do not use 3 Hz as the counterexample.** Because the window is closed, a 3.0 Hz square has
+> transitions every 1/6 s and therefore **seven inside `[0, 1]`** — R1 rejects it too. At 3 Hz both
+> rules bind, so it demonstrates nothing about their independence; 2.75 Hz isolates R2 cleanly.
 
 **Boundary tests — mandatory, because sliding-window off-by-ones are invisible in normal use.**
 Test the admission predicate **directly**, with synthetic transition timestamps: end-to-end tests
@@ -187,11 +192,12 @@ cannot isolate B2 from B2b, because R2 binds first for any periodic signal.
 
 | Case | Expected |
 |---|---|
-| Steady 2.0 Hz square `Y` | all transitions accepted — PASS |
-| Steady **2.5 Hz** square `Y` (same-direction every 400 ms) | all transitions accepted — PASS, exactly at the limit |
-| Steady **2.6 Hz** square `Y` | transitions rejected — LIMITED |
-| Steady **3.0 Hz** square `Y` (passes B2) | transitions rejected — LIMITED. This is the case B2 alone misses. |
-| Steady **3.5 Hz** square `Y` | transitions rejected — LIMITED |
+| Steady 2.0 Hz square `Y` | 4 transitions/s, max 5 in any closed 1 s window — **R1 PASS, R2 PASS** |
+| Steady **2.5 Hz** square `Y` | 5 transitions/s, max 6 in any closed 1 s window, same-direction exactly 400 ms — **R1 PASS, R2 PASS**, both exactly at their limits |
+| Steady **2.75 Hz** square `Y` | 5.5 transitions/s, max 6 in any closed window, same-direction **364 ms** — **R1 PASS, R2 FAIL**. *This is the case B2 alone misses.* |
+| Steady **2.9 Hz** square `Y` | max 6 in any closed window, same-direction 345 ms — **R1 PASS, R2 FAIL** |
+| Steady **3.0 Hz** square `Y` | transitions every 1/6 s ⇒ **7 inside `[0, 1]`** — **R1 FAIL and R2 FAIL**. Both bind; not a discriminator. |
+| Steady **3.5 Hz** square `Y` | 7 transitions/s — **R1 FAIL, R2 FAIL** |
 
 *End-to-end:*
 
@@ -199,6 +205,7 @@ cannot isolate B2 from B2b, because R2 binds first for any periodic signal.
 |---|---|
 | The PULSE mapping at 120 BPM and at 200 BPM | **pass**, governor idle at 120, possibly engaging at 200 |
 | Ratchet 4 on every 16th at 200 BPM | **pass** with the governor engaged (the aggregate rule in `03` §3 should already prevent this) |
+| A 2.75 Hz periodic light from any mapping | **B2b FAIL** — the governor must limit it. This is the regression test proving rule R2 exists at all. |
 | Song-position jump (host seek) mid-render | window state reset deterministically, not left carrying stale timestamps |
 | **B4** governor actually engages | Drive a hostile state (ratchet 4 on every step, 200 BPM, all voices on, STABILITY 0). | B2 still holds; `governorActive` telemetry is non-zero. |
 | **B5** clamp is adversarial | A state or test hook requesting brightness 1.5× the ceiling. | Output clamped to the ceiling; the clamp is logged; no crash. |
