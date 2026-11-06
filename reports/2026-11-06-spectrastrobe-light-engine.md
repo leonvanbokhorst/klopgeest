@@ -439,8 +439,9 @@ Logged because they are real, and none of them is authorised by this mandate:
 
 ## 12. Corrections made after review
 
-An independent review of the first version of this pack found four defects. All are fixed; they are
-recorded rather than quietly edited because a builder reading the PR history should see what changed.
+Two independent review rounds found seven defects — four in the first version of the pack, three more
+in the corrections themselves. All are fixed; they are recorded rather than quietly edited, because a
+builder reading the PR history should see what changed and why.
 
 | # | Defect | Fix |
 |---|---|---|
@@ -449,8 +450,23 @@ recorded rather than quietly edited because a builder reading the PR history sho
 | 3 | **C1 was impossible by construction.** It promised bit-identical audio with light on, while `01` §5–6 require a programme filter and a headroom attenuation. | Split into **C1a** (light off: bit-identical), **C1b** (light on: identical *events*, music matched after removing the two declared changes), **C1c** (the filter does its job and nothing else). The headroom rule also changed: not a fixed −6 dBTP but computed from the carrier cap in force, so the attenuation at the product cap is **0.9 dB** rather than 5.6 dB. |
 | 4 | **The polymeter period was wrong.** 560 sixteenth-note steps at 120 BPM was given as "four and a half minutes". | It is **70 seconds** (560 × 0.125 s). Both the design document and the summary now say so, with the scaling stated honestly rather than rounded into rhetoric. |
 
-None of the four changes a conclusion about the format, the hardware evidence, or the architecture.
+A second review round on the corrected pack found two more, both in the fix itself:
+
+| # | Defect | Fix |
+|---|---|---|
+| 5 | **The corrected sliding-window boundary cases were themselves wrong.** The rule is "at most 6 transitions in every 1 s window", under which **6 transitions inside 0.999 s passes** — the boundary table said it must fail. A compliant governor would have been failed by the pack's own acceptance gate. | Boundary cases corrected and split by rule: 6-in-0.999 s passes, 7-in-0.999 s fails, 7 spanning 1.2 s passes, 7 in `[0, 1.0]` inclusive fails. Window semantics are now stated — **closed at both ends, exactly `fs` samples**, so `n − t = fs` rejects and `fs + 1` admits — and the seven cases are unit tests on the admission predicate, because end-to-end tests cannot separate the two governor rules. |
+| 6 | **The 2.5 Hz design rate was asserted but not enforced.** Rule R1 bounds the *count* of transitions, not their *rate*: a **3 Hz square wave is 6 transitions/s**, satisfies "≤ 3 flashes/s", and passes — while breaking the stated ≤ 2.5 Hz limit. One merged sentence guaranteed neither. | Split into **K2a / B2** (flash count, governor rule R1) and **K2b / B2b** (pulse rate, governor rule R2: consecutive same-direction transitions ≥ 400 ms). Both are now governor rules with stated boundary behaviour, and both documents say plainly that they bound a *luminance proxy*, not photons. |
+| 7 | **The C1b oracle was numerically unsound** (raised as optional; it is a real defect). It inverse-filtered the light-on render, which amplifies noise at a notch's deep stopband and makes any failure uninterpretable. | Compare **forward with forward**: apply the same documented filter and gain to the *light-off* render and compare that against the light-on render. |
+
+None of the seven changes a conclusion about the format, the hardware evidence, or the architecture.
 They changed what the documents *say*, which is the part a builder implements.
+
+The pattern in defects 5 and 6 is worth naming, because it is the general failure mode of this kind of
+document: **the correction reproduced the original mistake one level down.** Fixing a wrong number
+introduced a wrong boundary case; separating flash count from flash rate produced a single sentence
+that enforced neither. Both were caught only because someone read the *rules* rather than the
+conclusions. A builder should expect the same to happen in the implementation, and should write the
+boundary tests in [`05`](spectrastrobe/05-acceptance-and-tests.md) §3 before writing the governor.
 
 ---
 

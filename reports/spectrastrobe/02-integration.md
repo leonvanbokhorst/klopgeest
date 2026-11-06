@@ -214,7 +214,9 @@ Achievable by construction: the light stage returns before touching a sample.
 
 > Render with light on. Assert (i) every `SequencedEvent` (voice, sampleOffset, tickIndex, velocity,
 > flags) matches the light-off render exactly, and (ii) with the declared headroom gain removed and
-> the declared filter inverse-applied, the audible band matches to ≤ −80 dBFS.
+> the same documented forward filter and gain applied **to the light-off render**, the audible band
+> matches to ≤ −80 dBFS. Never inverse-filter the light-on render: inverting a notch's deep stopband is
+> numerically unstable and turns an unreadable test into an unexplainable one.
 
 **Do not promise bit-identity here.** Two changes are permitted and both are real: the programme
 anti-alias/notch stage ([`01`](01-signal-spec.md) §6), which shifts phase even where it leaves

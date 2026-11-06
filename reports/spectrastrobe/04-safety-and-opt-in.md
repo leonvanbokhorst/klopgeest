@@ -61,7 +61,15 @@ Adapted from the inherited research rules R1–R12, rewritten for KLOPGEEST.
 | # | Rule | Enforced by |
 |---|---|---|
 | **K1** | **Off by default.** No carrier is generated until the user explicitly enables light. | `lightEnabled` default false; encoder returns immediately when false. |
-| **K2** | **No repeated flicker.** Luminance modulation ≤ **2.5 Hz** by design, and the governor caps the light at **≤ 3 flashes (≤ 6 transitions) in every sliding 1-second window**. A flash is one opposing *pair* of ≥ 10 % luminance changes, per WCAG 2.3.1. | Governor (`03` §5.1) — exact sliding-window accounting, not a token bucket. A hard encoder limit, not a UI recommendation. |
+| **K2a** | **Flash count.** At most **3 flashes** — that is, at most **6 transitions** — in **every closed 1-second window**. A flash is one opposing *pair* of ≥ 10 % luminance changes, per WCAG 2.3.1. | Governor rule **R1** (`03` §5.1): exact sliding-window accounting on integer sample counts, not a token bucket. A hard encoder limit, not a UI recommendation. |
+| **K2b** | **Design pulse rate.** Consecutive **same-direction** transitions at least **400 ms** apart, i.e. a luminance fundamental of **≤ 2.5 Hz**. | Governor rule **R2** (`03` §5.1). |
+| **K2c** | **Neither K2a nor K2b is a statement about hardware light.** They bound a computed *luminance proxy*. Photon output depends on per-colour LED efficiency, which is **[O]**. | Test B2/B2b measure the signal; only the photodiode test ([`06`](06-hardware-validation.md) T6) measures light. |
+
+> **Why K2 is two rules, not one.** A rolling count cannot bound a periodic frequency. A **3 Hz square
+> wave is 6 transitions/s** — that is ≤ 3 flashes/s, so it satisfies K2a while breaking the 2.5 Hz
+> design limit. K2b is what enforces the rate; K2a is what catches irregular bursts that K2b cannot
+> see. Both are enforced in the governor. An earlier draft of this document merged them into one
+> "≤ 3 flashes and ≤ 2.5 Hz" statement and thereby guaranteed neither.
 | **K3** | **Smooth envelopes.** Attack and release **≥ 20 ms hard** for every artistic light transition, ≥ 50 ms for deliberate events. | Slew limiter before the encoder; a config that violates it is clamped, not honoured. **One explicit exception: panic (K10) — see below.** |
 | **K4** | **No step from black to full, and no step to black.** Every light event starts and ends at zero amplitude with zero slope (cubic smoothstep). | Envelope generator shape; asserted offline. |
 | **K5** | **Make before break.** A colour transition reaches its target before the outgoing one begins to fall. Overlap ≥ 100 ms. | Transition logic in the encoder. |

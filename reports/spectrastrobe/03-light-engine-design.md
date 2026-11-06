@@ -250,14 +250,16 @@ can produce unsafe or ugly light.
 for each channel c in {R,G,B} × {L,R}:
     gain[c] = slewLimit (gain[c], minRiseMs = 20)          // signal + safety
 Y[c]    = 0.21·R + 0.72·G + 0.07·B                         // luminance PROXY, per ear
-                                                           // c = the slower of the two ears
 
-// exact sliding-window flash accounting (see below), one ring per ear
-if Y has reversed direction after moving >= 10% of the ceiling:
-    if now - transitionTime[ring, N-1] < 1.0 s:            // N = 6
-        freeze luminance this frame, keep hue and position moving
-    else:
-        pushTransition(now)
+// A transition is a reversal of dY/dt after Y moved >= 10% of the ceiling.
+// Two independent gates, both per ear. Reject => freeze luminance this frame,
+// keep hue and position moving.
+on transition at sample n:
+    // R1 — flash count: at most 6 transitions in ANY closed 1 s window
+    if last6.count == 6 and (n - last6.oldest) <= fs:      reject
+    // R2 — design pulse rate: consecutive same-direction transitions >= 400 ms
+    if (n - previousSameDirection) < 0.4·fs:               reject
+    accept(n)
 ```
 
 ### 5.1 Definitions — write these into the code as comments
@@ -272,18 +274,42 @@ bound in *every* window. Use exact accounting.
 | **Luminance proxy `Y`** | `0.21·R + 0.72·G + 0.07·B` per ear. An **estimate**, not a measurement. |
 | **Transition** | A reversal of `dY/dt` after `Y` has moved ≥ **10 % of the current ceiling** since the previous extremum. |
 | **Flash** | One opposing **pair** of transitions (WCAG 2.3.1's unit). One complete up-down or down-up cycle. |
-| **Budget** | **≤ 3 flashes in every sliding 1-second window** ⇒ at most **6 transitions** in any sliding 1 s. |
+| **Budget** | **≤ 3 flashes in every closed 1-second window** ⇒ at most **6 transitions** in any closed `fs`-sample window. |
+| **Pulse rate** | Consecutive **same-direction** transitions ≥ **400 ms** apart ⇒ luminance fundamental **≤ 2.5 Hz**. |
 
-**Implementation:** a 6-entry ring of sample counters per ear. A new transition is only admitted if the
-oldest of the previous 6 is at least `sampleRate` samples in the past. That is O(1), allocation-free,
-and exactly enforces the bound rather than approximating it. Six, not three, because a flash is a
-*pair*: allowing 3 transitions would cap the light at 1.5 flashes/s, which is stricter than necessary
-and would make the 2.5 Hz design pulse of §1.2 impossible.
+**Implementation, R1 — the flash-count bound.** A 6-entry ring of transition timestamps per ear,
+in **integer sample counts**. A new transition at sample `n` is admitted **iff** there are fewer than
+6 accepted transitions in the closed window `[n − fs, n]`. Using the ring, that is exactly:
 
-**Consistency check with §1.2:** a 2.5 Hz luminance pulse is 2.5 flashes/s and 5 transitions/s. That is
-inside a budget of 3 flashes / 6 transitions per second, with margin. The two numbers are compatible —
-but only under the flash-pair definition above. If a builder counts transitions against a budget of 3,
-the design violates its own governor.
+```
+admit  iff  (count < 6)  or  (n − t[sixthMostRecent] > fs)
+```
+
+Six, not three, because a flash is a *pair*: a budget of 3 transitions would cap the light at
+1.5 flashes/s, which is stricter than necessary and would make the 2.5 Hz design pulse of §1.2
+impossible. O(1), allocation-free.
+
+**Window semantics — decide these once and write them into the code:** the window is
+**closed at both ends and exactly `fs` samples long**. A transition exactly `fs` samples before `n`
+counts, so `n − t == fs` **rejects** and `n − t == fs + 1` admits. This is the conservative choice: it
+bounds the closed window, and therefore also bounds every half-open window, while the reverse is not
+true.
+
+**Implementation, R2 — the design pulse rate.** Track the timestamp of the previous transition of the
+same direction; admit **iff** `n − previousSameDirection ≥ 0.4·fs`. For a periodic luminance wave this
+is exactly a bound on the fundamental: consecutive same-direction transitions are one period apart, so
+requiring ≥ 400 ms enforces **≤ 2.5 Hz**. 2.5 Hz passes; 2.6 Hz and 3 Hz do not.
+
+**Why R1 alone is not enough — and this was the second review's finding.** R1 bounds *count*, not
+*rate*. A 3 Hz square wave is 6 transitions/s, which is ≤ 3 flashes/s and therefore **passes R1**,
+while violating the 2.5 Hz design limit stated in §1.2 and in `04` K2. A rolling count cannot bound a
+periodic frequency. R2 is what enforces it. Conversely R2 alone cannot catch an irregular burst, so
+both are needed and both are in the governor — not in a design note.
+
+**Consistency check with §1.2:** a 2.5 Hz luminance pulse is 2.5 flashes/s and 5 transitions/s.
+That is inside R1's budget (3 flashes / 6 transitions per second) and exactly at R2's limit. The three
+numbers are compatible only under the flash-pair definition above. A builder who counts transitions
+against a budget of 3, or who drops R2, violates the design.
 
 ### 5.2 The rest of the governor
 
@@ -302,9 +328,10 @@ the design violates its own governor.
   intention. **Neither the inherited NAGLOED implementation nor any existing KLOPGEEST code implements
   this** — it is new work and it is the single most important safety component.
 - **Adversarial boundary tests are mandatory**, because off-by-one errors in a sliding window are
-  invisible in normal use: exactly 6 transitions in 1.000 s must pass; 6 transitions in 0.999 s must
-  fail; a burst of 6 at t=0 followed by 1 at t=0.5 s must fail; a steady 3 Hz square envelope must
-  pass; a steady 3.5 Hz square envelope must fail. See [`05`](05-acceptance-and-tests.md) §3.
+  invisible in normal use. **Test R1 and R2 separately**, on the admission predicate, with synthetic
+  transition timestamps — end-to-end tests cannot isolate them, because R2 binds first for any periodic
+  signal. The case list and the exact expected accept/reject counts are in
+  [`05`](05-acceptance-and-tests.md) §3.
 
 ---
 
@@ -336,7 +363,7 @@ Five operational criteria. The first four are offline tests a CI can run; the fi
 | # | Criterion | Test | Status today |
 |---|---|---|---|
 | **C1a** | **Light off is exactly the old instrument.** | Render with `lightEnabled = false`; the buffer must be **bit-identical** to a render from the pre-feature build. | Achievable by construction: the light stage returns before touching a sample. |
-| **C1b** | **Light on does not change the music.** The signal path is the same instrument with a declared filter and a declared gain change. | The permitted differences are exactly two: the programme anti-alias/notch stage (magnitude-flat in the audible band) and the headroom attenuation of `01` §5 (≤ 1 dB at the product cap). Assert (i) every `SequencedEvent` is identical between light-off and light-on, and (ii) with the declared gain applied to the light-off render, the two agree to ≤ −80 dBFS in 0–16 kHz once the declared filter is also applied. | Achievable, and honest. **Do not promise bit-identity for C1b** — a notch shifts phase, and the gain change is real. |
+| **C1b** | **Light on does not change the music.** The signal path is the same instrument with a declared filter and a declared gain change. | The permitted differences are exactly two: the programme anti-alias/notch stage (magnitude-flat in the audible band) and the headroom attenuation of `01` §5 (≤ 1 dB at the product cap). Assert (i) every `SequencedEvent` is identical between light-off and light-on, and (ii) after applying the **same documented forward filter and gain to the light-off render** — never inverse-filtering the light-on one — the two agree to ≤ −80 dBFS in 0–16 kHz. | Achievable, and honest. **Do not promise bit-identity for C1b** — a notch shifts phase, and the gain change is real. |
 | **C1c** | **The filter does its job and does nothing else.** | Measure the programme's spectrum before and after the anti-alias/notch stage. | Pass when 17–20 kHz is ≤ −40 dB re the carrier band **and** the 0–16 kHz magnitude response is flat within ±0.1 dB. |
 | **C2** | **The light is rhythmic on its own.** | Render the carriers with the programme muted. The luminance envelope's autocorrelation must peak at the pattern period, and differ between two different factory patterns. A flat or non-periodic result is decoration. | **Not established.** Nothing built. |
 | **C3** | **It uses the groove.** | Render at STABILITY 1.0 (machine) and 0.0 (wild). The variance of the light's *overlap shapes* / spatial deviation must differ measurably. If identical, the light is not representing the groove. | **Not established.** |

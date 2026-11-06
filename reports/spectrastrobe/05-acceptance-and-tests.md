@@ -152,7 +152,8 @@ must implement and measure both.
 | Check | Method | Pass |
 |---|---|---|
 | **B1** minimum edge time | Per light channel, find the 10 %→90 % and 90 %→10 % rise/fall times of every transition in the rendered 6-channel gain trace. | Every edge ≥ 20 ms. **Fail the build**, do not clamp silently. |
-| **B2** flash rate — **every** sliding second | `Y = 0.21·R + 0.72·G + 0.07·B` per ear. Detector: a **transition** is a reversal of `dY/dt` after `Y` moved ≥ 10 % of the ceiling since the previous extremum. Count transitions, **not** flashes, and require ≤ 6 in every sliding 1 s window (6 transitions ⇒ ≤ 3 flashes). Scan the whole render with a 1-sample stride, not 1 s hops. | ≤ **6 transitions (⇒ ≤ 3 flashes)** in **every** window; zero violations. Test both ears independently. |
+| **B2** flash count — **every** closed 1 s window | `Y = 0.21·R + 0.72·G + 0.07·B` per ear. A **transition** is a reversal of `dY/dt` after `Y` moved ≥ 10 % of the ceiling since the previous extremum. Count transitions, **not** flashes. Window is **closed at both ends, exactly `fs` samples**. Scan with a 1-sample stride, not 1 s hops. | ≤ **6 transitions (⇒ ≤ 3 flashes)** in **every** window; zero violations. Both ears independently. **B2 is only the flash-count bound** — it does not bound periodic rate. |
+| **B2b** design pulse rate — **governor rule R2** | Consecutive **same-direction** transitions must be ≥ **400 ms** apart, which bounds the fundamental at **≤ 2.5 Hz**. Unit-test the admission predicate directly; then measure the fundamental of `Y(t)` by autocorrelation on a long render. | No two same-direction transitions closer than 400 ms. 2.5 Hz square passes; 2.6 Hz and 3 Hz squares do not. |
 | **B3** no modulation in 3–30 Hz | FFT of `Y(t)` after removing DC and the intentional slow envelope. | No peak in 3–30 Hz above **10 %** of the mean level. **This is a spectral check, not a safety proof** — `Y` is a proxy for luminance, not luminance. |
 
 > **On B2 and proxies.** The governor bounds a *computed* brightness proxy. It does not bound photons:
@@ -161,23 +162,50 @@ must implement and measure both.
 > measurement in [`06`](06-hardware-validation.md) T6 is evidence about light. Do not describe a
 > green B2/B3 as "flicker-free".
 
-**B2 boundary tests — mandatory, because sliding-window off-by-ones are invisible in normal use:**
+**Why B2 and B2b are separate.** A rolling count cannot bound a periodic frequency. A **3 Hz square
+wave is 6 transitions per second**: it is ≤ 3 flashes/s, so it **passes B2**, while breaking the 2.5 Hz
+design limit in `03` §1.2 and `04` K2. B2b (governor rule R2) is what enforces the rate; B2 (rule R1)
+is what catches irregular bursts that B2b cannot see. Both live in the governor.
+
+**Boundary tests — mandatory, because sliding-window off-by-ones are invisible in normal use.**
+Test the admission predicate **directly**, with synthetic transition timestamps: end-to-end tests
+cannot isolate B2 from B2b, because R2 binds first for any periodic signal.
+
+*Rule R1 — flash count (B2), with R2 disabled:*
+
+| Case | Timestamps (s) | Expected |
+|---|---|---|
+| 6 transitions spread over 0.999 s | 0, 0.2, 0.4, 0.6, 0.8, 0.999 | **6 accepted — PASS** |
+| 7 transitions over 0.999 s | 0, 0.1665, 0.333, 0.4995, 0.666, 0.8325, 0.999 | **6 accepted, 1 rejected — FAIL** |
+| 7 transitions spanning 1.2 s, ≤ 6 in any 1 s window | 0, 0.2, 0.4, 0.6, 0.8, 1.0, 1.2 | **7 accepted — PASS** |
+| 6 transitions at exactly `[0, 1.0]` inclusive | 0, 0.2, 0.4, 0.6, 0.8, 1.0 | **6 accepted — PASS** |
+| 7 transitions inside `[0, 1.0]` inclusive | 0, 0.1666, 0.3333, 0.5, 0.6666, 0.8333, 1.0 | **6 accepted, 1 rejected — FAIL** |
+| Exactly `fs` samples apart (closed-window boundary) | `n − t = fs` | **reject** |
+| `fs + 1` samples apart | `n − t = fs + 1` | **accept** |
+
+*Rule R2 — design pulse rate (B2b), with R1 disabled:*
 
 | Case | Expected |
 |---|---|
-| Exactly 6 transitions spread over exactly 1.000 s | **pass** |
-| Exactly 6 transitions over 0.999 s | **fail** |
-| 6 transitions in a burst at t = 0, then 1 at t = 0.5 s | **fail** (7 in the first window) |
-| Steady 3 Hz square `Y` envelope (6 transitions/s) | **pass** |
-| Steady 3.5 Hz square `Y` envelope (7 transitions/s) | **fail** |
-| The PULSE mapping at 120 BPM and at 200 BPM | **pass**, with the governor idle at 120 and possibly engaging at 200 |
-| Song-position jump (host seek) mid-render | window state is reset deterministically, not left carrying stale timestamps |
+| Steady 2.0 Hz square `Y` | all transitions accepted — PASS |
+| Steady **2.5 Hz** square `Y` (same-direction every 400 ms) | all transitions accepted — PASS, exactly at the limit |
+| Steady **2.6 Hz** square `Y` | transitions rejected — LIMITED |
+| Steady **3.0 Hz** square `Y` (passes B2) | transitions rejected — LIMITED. This is the case B2 alone misses. |
+| Steady **3.5 Hz** square `Y` | transitions rejected — LIMITED |
+
+*End-to-end:*
+
+| Case | Expected |
+|---|---|
+| The PULSE mapping at 120 BPM and at 200 BPM | **pass**, governor idle at 120, possibly engaging at 200 |
+| Ratchet 4 on every 16th at 200 BPM | **pass** with the governor engaged (the aggregate rule in `03` §3 should already prevent this) |
+| Song-position jump (host seek) mid-render | window state reset deterministically, not left carrying stale timestamps |
 | **B4** governor actually engages | Drive a hostile state (ratchet 4 on every step, 200 BPM, all voices on, STABILITY 0). | B2 still holds; `governorActive` telemetry is non-zero. |
 | **B5** clamp is adversarial | A state or test hook requesting brightness 1.5× the ceiling. | Output clamped to the ceiling; the clamp is logged; no crash. |
 | **B6** make-before-break | A colour A→B transition. | B reaches its target before A starts to fall; overlap ≥ 100 ms; `Y(t)` never dips more than 10 %. |
 | **B7** failure injection | NaN/Inf in a mapping output; a divide-by-zero in a lane length; a sample rate of 8 kHz. | Finiteness restored, light disabled with a status flag, audio unaffected. |
 
-B2 and B3 are the ones that make the feature defensible. **If they cannot be measured, the feature is
+B2, B2b and B3 are the ones that make the feature defensible. **If they cannot be measured, the feature is
 not ready**, regardless of how it looks.
 
 ---
@@ -189,7 +217,7 @@ These test the claims in [`03-light-engine-design.md`](03-light-engine-design.md
 | Check | Method | Pass |
 |---|---|---|
 | **C1a** light **off** is exactly the old instrument | Same seed/pattern/params, `lightEnabled=false`, against a render from the pre-feature build. | **Bit-identical.** Enforced structurally: the light stage returns before it touches a sample. |
-| **C1b** light **on** does not change the music | Same seed/pattern/params, light off vs light on. | **Not bit-identical, and must not be claimed to be.** Assert: (i) every `SequencedEvent` (voice, sampleOffset, tickIndex, velocity, flags) is identical in both renders; (ii) the light-on programme, with the declared headroom gain removed and the declared filter inverse-applied, matches the light-off programme to ≤ −80 dBFS in 0–16 kHz. |
+| **C1b** light **on** does not change the music | Same seed/pattern/params, light off vs light on. **Oracle:** apply the *same documented forward filter and gain* to the light-off render and compare **forward with forward**. Do **not** inverse-filter the light-on render — inverse-filtering at a notch's deep stopband is numerically unstable and turns a 60 dB notch into a noise amplifier, so a failure would be uninterpretable. | **Not bit-identical, and must not be claimed to be.** Assert: (i) every `SequencedEvent` (voice, sampleOffset, tickIndex, velocity, flags) is identical in both renders; (ii) after the declared forward filter and gain are applied to the light-off render, the two agree to ≤ −80 dBFS in 0–16 kHz. |
 | **C1c** the filter is honest | Measure the anti-alias/notch stage's response on the actual programme. | 17–20 kHz ≤ −40 dB re the carrier band, **and** 0–16 kHz magnitude flat within ±0.1 dB. A notch shifts phase; assert magnitude, declare the phase change. |
 | **C2** light is rhythmic on its own | Render carriers only, programme muted. Autocorrelation of `Y(t)`. | A clear peak at the pattern period; and the correlation profile differs between two different factory patterns. |
 | **C3** groove is used | Render STABILITY 1.0 and STABILITY 0.0. | The variance of the light's overlap shapes / spatial deviation differs by more than measurement noise. |
